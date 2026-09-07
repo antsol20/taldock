@@ -142,10 +142,17 @@ written, so new defaults are picked up on upgrade.
 | `reserve_space` | `true` | Set `_NET_WM_STRUT_PARTIAL` |
 | `launchers` | see `config.py` | Pinned `.desktop` ids |
 | `widgets` | see `config.py` | Status order; `sep` draws a divider |
+| `menu_width` | `452` | Applications menu width |
+| `menu_height` | `372` | Height of its scrolling application list |
+| `menu_sidebar_width` | `126` | Category column; `0` hides it |
 | `load_warn_at` | `0.40` | CPU/memory gauges leave green above this |
 | `load_crit_at` | `0.70` | …are fully amber here, red at 100% |
 | `monitor` | `"primary"` | Or a connector name such as `eDP-1` |
 | `theme` | `{}` | Colour overrides, see `taldock/theme.py` |
+
+`menu_height` sizes the application list, not the whole card — the search
+box and footer add a fixed ~133px. Anything that would run off the top of
+the screen is clamped automatically, so an over-large value is safe.
 
 Try settings without touching your own config:
 

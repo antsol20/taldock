@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from gi.repository import Gdk, GLib, Gtk
 
-from .popup import Popup, label, separator
+from .popup import GAP, SHADOW, Popup, label, separator
 from .util import launch_first
 
 # XDG main categories we surface, in display order.
@@ -107,7 +107,9 @@ class AppMenuPopup(Popup):
         self.query = ""
 
         self.content.get_style_context().add_class("td-popup")
-        self.content.set_size_request(452, 0)
+        cfg = dock.cfg
+        self.sidebar_width = max(0, int(cfg["menu_sidebar_width"]))
+        self.content.set_size_request(self._clamped_width(), 0)
         for setter, getter in (
                 (self.content.set_margin_start, self.content.get_margin_start),
                 (self.content.set_margin_end, self.content.get_margin_end),
@@ -119,6 +121,34 @@ class AppMenuPopup(Popup):
         self._build_body()
         self.connect("key-press-event", self._on_key)
         self.populate()
+
+    # -- sizing ------------------------------------------------------------
+    def _clamped_width(self):
+        """Configured width, kept inside the monitor."""
+        mon = self.dock.monitor_geometry()
+        side = int(self.dock.cfg["side_margin"])
+        return max(300, min(int(self.dock.cfg["menu_width"]),
+                            mon.width - side * 2))
+
+    def _fit_to_screen(self):
+        """Shrink the list if the configured height would run off-screen.
+
+        Must run with the widgets visible: an unshown window reports only a
+        minimum size, so the chrome would measure as nonsense. The chrome
+        (search box, footer, padding) is measured rather than guessed, so
+        this stays right if the layout changes.
+        """
+        wanted = int(self.dock.cfg["menu_height"])
+        self.scroller.set_size_request(-1, wanted)
+        total = self.get_preferred_size()[1].height
+        chrome = total - wanted
+        mon = self.dock.monitor_geometry()
+        available = (mon.height - self.dock.bar_height
+                     - int(self.dock.cfg["margin"]) - GAP - SHADOW * 2 - chrome)
+        height = max(140, min(wanted, int(available)))
+        if height != wanted:
+            self.scroller.set_size_request(-1, height)
+        return height
 
     # -- chrome ------------------------------------------------------------
     def _build_header(self):
@@ -134,7 +164,8 @@ class AppMenuPopup(Popup):
         body.set_margin_top(4)
 
         sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
-        sidebar.set_size_request(126, -1)
+        sidebar.set_size_request(self.sidebar_width, -1)
+        sidebar.set_valign(Gtk.Align.START)
         self.category_buttons = []
         group = None
         for title, key in CATEGORIES:
@@ -151,7 +182,16 @@ class AppMenuPopup(Popup):
             btn.connect("toggled", self._on_category, key)
             sidebar.pack_start(btn, False, False, 0)
             self.category_buttons.append(btn)
-        body.pack_start(sidebar, False, False, 0)
+        # The category column is taller than a small list would be, so it
+        # would otherwise set a floor that menu_height could not go below.
+        # Letting it scroll makes the configured height actually apply.
+        sidebar_scroll = Gtk.ScrolledWindow()
+        sidebar_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sidebar_scroll.set_size_request(self.sidebar_width, -1)
+        sidebar_scroll.add(sidebar)
+        if self.sidebar_width > 0:
+            body.pack_start(sidebar_scroll, False, False, 0)
+        self._sidebar = sidebar_scroll
 
         self.listbox = Gtk.ListBox()
         self.listbox.set_selection_mode(Gtk.SelectionMode.BROWSE)
@@ -163,7 +203,7 @@ class AppMenuPopup(Popup):
 
         self.scroller = Gtk.ScrolledWindow()
         self.scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.scroller.set_size_request(-1, 372)
+        self.scroller.set_size_request(-1, int(self.dock.cfg["menu_height"]))
         self.scroller.add(self.listbox)
         body.pack_start(self.scroller, True, True, 0)
 
@@ -365,6 +405,12 @@ class AppMenuPopup(Popup):
             print(f"taldock: session action unavailable: {' '.join(command)}")
 
     # -- reuse -------------------------------------------------------------
+    def prewarm(self):
+        super().prewarm()
+        self.show_all()
+        self._fit_to_screen()
+        self.hide()
+
     def reset(self):
         """Return to a clean state before showing again."""
         self.category = None
@@ -377,5 +423,7 @@ class AppMenuPopup(Popup):
             self._reapply()
 
     def open_at(self, anchor_x, align="start"):
+        self.show_all()          # sizes only mean anything once visible
+        self._fit_to_screen()
         super().open_at(anchor_x, align)
         self.search.grab_focus()

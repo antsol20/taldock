@@ -49,6 +49,9 @@ DEFAULTS = {
     # -- content -----------------------------------------------------------
     "launchers": DEFAULT_LAUNCHERS,
     "menu_icon": "taldock",
+    "menu_width": 452,             # applications menu card width
+    "menu_height": 372,            # height of its scrolling application list
+    "menu_sidebar_width": 126,     # category column; 0 hides it
     "menu_label": "Applications",
     "show_menu_label": False,
     "widgets": ["sysmon", "sep", "network", "battery", "audio",

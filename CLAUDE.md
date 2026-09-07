@@ -75,6 +75,14 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   zero -- an empty system tray, a machine with no battery -- which would
   otherwise leave two dividers stacked together. Measure first, collapse,
   then place.
+- **The applications menu is sized from config, and measured, not guessed.**
+  `menu_width` / `menu_height` / `menu_sidebar_width` drive it;
+  `_fit_to_screen()` measures the chrome and clamps the list so the card
+  cannot run off the top of the screen. It must run **after** `show_all()`:
+  an unshown window reports only a minimum size, so the chrome measures as
+  nonsense (this was got wrong first time). The category column is inside
+  its own scroller, because 11 buttons are taller than a small list and
+  would otherwise set a floor `menu_height` could not go below.
 - **The CPU/memory colour ramp is configurable.** `Theme.load_ramp` is green
   below `load_warn_at`, blends to amber by `load_crit_at`, then to red at
   100%; the gauge glow starts at `load_crit_at` so colour and halo cannot
