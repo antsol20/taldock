@@ -299,7 +299,11 @@ class AppMenuPopup(Popup):
 
     def _on_key(self, _widget, event):
         key = event.keyval
-        if key == Gdk.KEY_Escape:
+        if key in (Gdk.KEY_Escape, Gdk.KEY_Super_L, Gdk.KEY_Super_R,
+                   Gdk.KEY_Meta_L, Gdk.KEY_Meta_R):
+            # Super has to be handled here rather than by the desktop
+            # shortcut: while the menu is open we hold a seat grab, so
+            # xfwm4 never sees the key and could not toggle us shut.
             self.dismiss()
             return True
         if key in (Gdk.KEY_Down, Gdk.KEY_Up):

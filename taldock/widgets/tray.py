@@ -44,7 +44,13 @@ class TrayItem(PanelItem):
             surf = None
             name = item.effective_icon
             if name:
-                surf = ICONS.surface(name, ICON, self.dock.scale, fallback=None)
+                # Symbolic first: themed tray art usually assumes a light
+                # panel and vanishes on ours.
+                surf = ICONS.symbolic_surface(name, ICON, self.dock.scale,
+                                              self.theme["fg"])
+                if surf is None:
+                    surf = ICONS.surface(name, ICON, self.dock.scale,
+                                         fallback=None)
             if surf is None and item.pixbuf is not None:
                 surf = ICONS.surface_from_pixbuf(
                     item.pixbuf, ICON, self.dock.scale,

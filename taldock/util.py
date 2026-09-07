@@ -206,6 +206,37 @@ class IconCache:
         self._surfaces[key] = surf
         return surf
 
+    def symbolic_surface(self, name, size, scale=1, fg=(1, 1, 1, 1)):
+        """Prefer a symbolic variant of `name`, recoloured to `fg`.
+
+        Tray icons are usually themed for a light panel: the nm-applet set,
+        for instance, is a raster whose dominant colour is pure black, which
+        simply disappears on a dark bar. Symbolic icons are monochrome and
+        scalable, so they take our foreground colour and stay sharp.
+        Returns None when no symbolic variant exists.
+        """
+        if not name:
+            return None
+        cache_key = ("sym", name, size, scale, fg)
+        if cache_key in self._surfaces:
+            return self._surfaces[cache_key]
+
+        lookup = name if name.endswith("-symbolic") else name + "-symbolic"
+        flags = Gtk.IconLookupFlags.FORCE_SIZE
+        surf = None
+        try:
+            info = self._theme.lookup_icon_for_scale(lookup, size, scale, flags)
+            if info is not None:
+                colour = Gdk.RGBA()
+                colour.red, colour.green, colour.blue, colour.alpha = fg
+                pixbuf, _was_symbolic = info.load_symbolic(colour, None, None, None)
+                if pixbuf is not None:
+                    surf = Gdk.cairo_surface_create_from_pixbuf(pixbuf, scale, None)
+        except GLib.Error:
+            surf = None
+        self._surfaces[cache_key] = surf
+        return surf
+
     def surface_from_pixbuf(self, pb, size, scale=1, key=None):
         """Same, for a pixbuf we already hold (e.g. a window's _NET_WM_ICON)."""
         if pb is None:

@@ -59,6 +59,11 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   typing feels broken. Selection is a style class plus
   `listbox.select_row()`; focus stays in the entry. Category buttons are
   `set_can_focus(False)` for the same reason.
+- **Tray icons need the `-symbolic` variant.** Themed tray art is drawn for
+  a light panel: nm-applet's `nm-signal-*` is a 22px raster whose dominant
+  colour is pure black, so on our bar only its brightest bar survived and it
+  read as "one tall bar, or none". `ICONS.symbolic_surface()` prefers the
+  monochrome scalable variant and tints it with the panel foreground.
 - **Animate off the frame clock** (`add_tick_callback`), not a 16ms timeout,
   and ease `pointer_x` toward the raw pointer: motion events arrive coalesced
   and unevenly, so following them directly stutters.
@@ -78,6 +83,15 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   repoints it and saves the old value.
 - **`--menu` must not import gi.** It is on the keypress path; the whole
   point of the control socket is to keep that under ~100 ms.
+- **Super-to-close is handled inside the popup, not by the shortcut.** While
+  the menu is open it holds a seat grab, so xfwm4 never sees the key and the
+  xfconf shortcut cannot fire to toggle it shut. `AppMenuPopup._on_key`
+  treats Super/Meta like Escape.
+- **Only one Dock may exist per session.** A second one unlinks and rebinds
+  the control and tab sockets, silently breaking the running dock's Super
+  key. Both servers probe for a live socket first, and `main()` refuses to
+  start a second instance. Test tools that construct a `Dock` directly are
+  fine -- they just get `secondary = True` and no sockets.
 
 ## Verifying changes
 
