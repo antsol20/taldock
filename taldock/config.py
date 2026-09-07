@@ -13,12 +13,15 @@ CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 # resolve to an installed .desktop file are skipped silently at load.
 DEFAULT_LAUNCHERS = [
     "thunar.desktop",
-    "google-chrome.desktop",
+    "org.gnome.Nautilus.desktop",
     "firefox.desktop",
     "firefox_firefox.desktop",
-    "code.desktop",
-    "org.gnome.Terminal.desktop",
+    "google-chrome.desktop",
+    "chromium.desktop",
+    "Alacritty.desktop",
     "xfce4-terminal.desktop",
+    "org.gnome.Terminal.desktop",
+    "code.desktop",
 ]
 
 DEFAULTS = {
