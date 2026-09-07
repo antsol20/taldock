@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "taldock tab bridge",
+  "version": "1.0.0",
+  "description": "Reports open tabs to the taldock dock so it can stack them under the browser icon.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmZwrmfu7FPoC5jrSrWaC42fwWAKdzD7tNRzX32gJ5kzMiucStmYCCwVp8SOuygCwwvxxu6z86wuiVsDx9NUoo56gw+SBH63MUqEwPzADDtfbYCeVJmKvujdG6FU0n52PMq/8H/7WbSdpL/lKF6sD+69IHeDR7oVbgK5uYtU9O9gy1swvV0hwDY3XFcAqIG2UlijIv6CEDmzOWCrm60y/nr01yhViCCpx67OcX1ovktnbvR2JOj93k14MV24rt7acxPzjogsuz4tUCtmvqVlMc44SW8cXu1EYEbPYzVee0LpYscoAHoXgce2hVeEdc+wQPKMv6WNYcnGo6myGd97swQIDAQAB",
+  "background": { "service_worker": "background.js" },
+  "permissions": ["tabs", "nativeMessaging"],
+  "host_permissions": ["<all_urls>"]
+}
