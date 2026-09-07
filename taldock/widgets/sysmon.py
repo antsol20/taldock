@@ -90,8 +90,11 @@ class SysMonItem(PanelItem):
         cr.fill()
         fill_h = max(GAUGE_W, GAUGE_H * max(0.0, min(1.0, frac)))
         # A high load gets a soft halo so it catches the eye without a label.
-        if frac > 0.8:
-            rgba(cr, with_alpha(color, (frac - 0.8) * 2.0))
+        # Tied to the colour ramp so the two cannot drift apart.
+        glow_at = self.theme.load_crit_at
+        if frac > glow_at:
+            rgba(cr, with_alpha(color,
+                                (frac - glow_at) / max(1e-6, 1.0 - glow_at) * 0.4))
             rounded_rect(cr, x - 2, y + GAUGE_H - fill_h - 2,
                          GAUGE_W + 4, fill_h + 4, (GAUGE_W + 4) / 2)
             cr.fill()

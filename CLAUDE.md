@@ -75,13 +75,14 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   zero -- an empty system tray, a machine with no battery -- which would
   otherwise leave two dividers stacked together. Measure first, collapse,
   then place.
-- **The CPU/memory colour ramp has a wide green band.** `Theme.load_ramp`
-  is pure green below 60%, blends green to amber over 60-85%, then amber to
-  red to 100%; above 80% the gauge also draws a glow. Verified under real
-  load: 52% green, 89% amber, 100% red. The consequence is that everything
-  below 60% looks identical, so an ordinarily busy desktop never leaves
-  green. That is deliberate (do not cry wolf) but it is the first thing to
-  revisit if the gauges feel uninformative.
+- **The CPU/memory colour ramp is configurable.** `Theme.load_ramp` is green
+  below `load_warn_at`, blends to amber by `load_crit_at`, then to red at
+  100%; the gauge glow starts at `load_crit_at` so colour and halo cannot
+  drift apart. Defaults are 0.40 and 0.70, verified under real load: 26%
+  green, 51% yellow-green, 76% amber, 100% red. They were originally
+  0.60/0.85, which made everything below 60% look identical -- a normally
+  busy desktop never left green. Widen them again only if the gauges feel
+  alarmist.
 
 ## Things that look wrong but are deliberate
 

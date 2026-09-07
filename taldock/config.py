@@ -57,6 +57,8 @@ DEFAULTS = {
     "clock_date_format": "%a %d %b",
     "show_clock_date": True,
     "sample_interval_ms": 2000,    # cpu/mem poll period
+    "load_warn_at": 0.40,          # gauges leave green above this
+    "load_crit_at": 0.70,          # gauges are fully amber here, red at 100%
 
     # -- appearance --------------------------------------------------------
     "theme": {},                   # colour overrides, see theme.py

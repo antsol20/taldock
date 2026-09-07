@@ -142,6 +142,8 @@ written, so new defaults are picked up on upgrade.
 | `reserve_space` | `true` | Set `_NET_WM_STRUT_PARTIAL` |
 | `launchers` | see `config.py` | Pinned `.desktop` ids |
 | `widgets` | see `config.py` | Status order; `sep` draws a divider |
+| `load_warn_at` | `0.40` | CPU/memory gauges leave green above this |
+| `load_crit_at` | `0.70` | …are fully amber here, red at 100% |
 | `monitor` | `"primary"` | Or a connector name such as `eDP-1` |
 | `theme` | `{}` | Colour overrides, see `taldock/theme.py` |
 

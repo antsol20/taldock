@@ -44,6 +44,11 @@ class Theme:
         self.c["bg_hi"] = with_alpha(self.c["bg_hi"], self.opacity)
         self.c["popup_bg"] = with_alpha(self.c["popup_bg"], min(1.0, self.opacity + 0.11))
         self.font = config.get("font", "Noto Sans")
+        # Where the CPU/memory gauges stop being green and where they reach
+        # full amber. Below `load_warn_at` everything looks identical, so a
+        # generous value throws away most of the gauge's resolution.
+        self.load_warn_at = float(config.get("load_warn_at", 0.40))
+        self.load_crit_at = float(config.get("load_crit_at", 0.70))
 
     def __getitem__(self, key):
         return self.c[key]
@@ -52,10 +57,18 @@ class Theme:
         return self.c.get(key, default)
 
     def load_ramp(self, frac):
-        """Green -> orange -> red, for meters. `frac` is 0..1."""
+        """Green -> amber -> red, for meters. `frac` is 0..1.
+
+        Green below `load_warn_at`, fully amber at `load_crit_at`, red at
+        100%, blending linearly between.
+        """
         from .util import mix
-        if frac < 0.6:
+        warn_at, crit_at = self.load_warn_at, self.load_crit_at
+        if frac < warn_at:
             return self.c["ok"]
-        if frac < 0.85:
-            return mix(self.c["ok"], self.c["warn"], (frac - 0.6) / 0.25)
-        return mix(self.c["warn"], self.c["crit"], min(1.0, (frac - 0.85) / 0.15))
+        if frac < crit_at:
+            span = max(1e-6, crit_at - warn_at)
+            return mix(self.c["ok"], self.c["warn"], (frac - warn_at) / span)
+        span = max(1e-6, 1.0 - crit_at)
+        return mix(self.c["warn"], self.c["crit"],
+                   min(1.0, (frac - crit_at) / span))
