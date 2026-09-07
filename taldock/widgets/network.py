@@ -6,7 +6,8 @@ import math
 from gi.repository import GLib, Gtk
 
 from ..popup import Popup, label, separator
-from ..util import rgba, rounded_rect, with_alpha
+from ..util import (launch_first, launch_in_terminal, rgba, rounded_rect,
+                     with_alpha)
 from .base import PanelItem
 
 
@@ -14,6 +15,7 @@ class NetworkItem(PanelItem):
     def setup(self):
         self._networks_box = None
         self._networks_header = None
+        self._pending_scans = set()
         self.net = self.dock.network
         self.net.connect("changed", lambda *_a: self.redraw())
 
@@ -91,11 +93,17 @@ class NetworkItem(PanelItem):
         area.set_size_request(17, 15)
 
         def draw(_w, cr):
-            colour = self.theme["accent"] if active else self.theme["fg"]
+            # Lit bars always take the accent colour so the filled portion is
+            # unmistakable; unlit ones are a dim neutral rather than a faded
+            # version of the same hue.
+            lit_colour = self.theme["accent"] if active else self.theme["accent_alt"]
             bars = 0 if strength <= 0 else min(4, strength // 25 + 1)
             for i in range(4):
                 bh = 3.5 + i * 3.2
-                rgba(cr, colour, 1.0 if i < bars else 0.18)
+                if i < bars:
+                    rgba(cr, lit_colour)
+                else:
+                    rgba(cr, with_alpha(self.theme["fg"], 0.22))
                 rounded_rect(cr, i * 4.2, 15 - bh, 2.9, bh, 1.4)
                 cr.fill()
             return False
@@ -105,7 +113,7 @@ class NetworkItem(PanelItem):
 
     def _build_popup(self):
         pop = Popup(self.dock, padding=13)
-        pop.content.set_size_request(276, -1)
+        pop.content.set_size_request(310, -1)
         pop.content.get_style_context().add_class("td-popup")
 
         if not self.net.available:
@@ -150,6 +158,7 @@ class NetworkItem(PanelItem):
         # The scan requested when the popup opened takes a second or two to
         # report, so refresh the list once results are in.
         source = GLib.timeout_add_seconds(2, self._rescan, pop)
+        self._pending_scans.add(source)
         pop.connect("destroy", self._on_popup_destroyed, source)
 
         btn = Gtk.Button(label="Network connections")
@@ -160,7 +169,10 @@ class NetworkItem(PanelItem):
         return pop
 
     def _on_popup_destroyed(self, _popup, source):
-        GLib.source_remove(source)
+        # The timeout may already have fired and removed itself.
+        if source in self._pending_scans:
+            self._pending_scans.discard(source)
+            GLib.source_remove(source)
         # These live on the panel item, which outlives the popup, so they
         # would otherwise pin the whole popup widget tree in memory.
         self._networks_box = None
@@ -179,9 +191,9 @@ class NetworkItem(PanelItem):
         self._networks_box.show_all()
 
     def _rescan(self, pop):
-        if not pop.get_realized():
-            return GLib.SOURCE_REMOVE
-        self._fill_networks(pop)
+        self._pending_scans.discard(GLib.main_current_source().get_id())
+        if pop.get_realized():
+            self._fill_networks(pop)
         return GLib.SOURCE_REMOVE
 
     def _ap_row(self, ap, pop):
@@ -193,9 +205,9 @@ class NetworkItem(PanelItem):
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         name = label(ap.ssid, "td-title" if ap.active else None)
         text.pack_start(name, False, False, 0)
-        sub = f"{ap.band}   ·   {ap.strength}%"
+        sub = f"{ap.band} · {ap.strength}%"
         if ap.active:
-            sub = "Connected   ·   " + sub
+            sub = "Connected · " + sub
         text.pack_start(label(sub, "td-dim"), False, False, 0)
         inner.pack_start(text, True, True, 0)
         if ap.secure:
@@ -214,10 +226,8 @@ class NetworkItem(PanelItem):
             self._open_editor()
 
     def _open_editor(self):
-        for cmd in ("nm-connection-editor", "nmtui"):
-            try:
-                GLib.spawn_async(["/usr/bin/env", cmd],
-                                 flags=GLib.SpawnFlags.SEARCH_PATH)
-                return
-            except GLib.Error:
-                continue
+        if launch_first(("nm-connection-editor",)):
+            return
+        if GLib.find_program_in_path("nmtui") and launch_in_terminal(["nmtui"]):
+            return
+        print("taldock: no network configuration tool found")

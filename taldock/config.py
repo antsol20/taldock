@@ -48,7 +48,7 @@ DEFAULTS = {
 
     # -- content -----------------------------------------------------------
     "launchers": DEFAULT_LAUNCHERS,
-    "menu_icon": "xfce4-whiskermenu",
+    "menu_icon": "taldock",
     "menu_label": "Applications",
     "show_menu_label": False,
     "widgets": ["sysmon", "sep", "network", "battery", "audio",

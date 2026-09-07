@@ -7,7 +7,7 @@ import os
 from gi.repository import Gio, GLib, Gtk
 
 from ..popup import Popup, label, separator
-from ..util import rgba, rounded_rect, with_alpha
+from ..util import launch_first, rgba, rounded_rect, with_alpha
 from .base import PanelItem
 
 BW, BH = 22.0, 11.0     # battery body
@@ -235,11 +235,10 @@ class BatteryItem(PanelItem):
 
         def open_settings(_b):
             pop.dismiss()
-            try:
-                GLib.spawn_async(["/usr/bin/env", "xfce4-power-manager-settings"],
-                                 flags=GLib.SpawnFlags.SEARCH_PATH)
-            except GLib.Error:
-                pass
+            if not launch_first(("xfce4-power-manager-settings",
+                                 "gnome-control-center power",
+                                 "xfce4-settings-manager")):
+                print("taldock: no power settings application found")
 
         btn.connect("clicked", open_settings)
         pop.content.pack_start(btn, False, False, 5)

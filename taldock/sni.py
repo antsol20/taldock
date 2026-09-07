@@ -181,25 +181,34 @@ class TrayItem(GObject.Object):
 
     # -- actions -----------------------------------------------------------
     def _call(self, method, params):
+        """Invoke a method on the item. False if it is not implemented.
+
+        Plenty of Ayatana items (nm-applet among them) implement no Activate
+        at all and expect a left click to open their menu, so callers need to
+        know whether the call actually landed.
+        """
         if self.proxy is None:
-            return
+            return False
         try:
             self.proxy.call_sync(method, params, Gio.DBusCallFlags.NONE,
                                  2000, None)
+            return True
         except GLib.Error:
-            pass
+            return False
 
     def activate(self, x, y):
-        self._call("Activate", GLib.Variant("(ii)", (int(x), int(y))))
+        return self._call("Activate", GLib.Variant("(ii)", (int(x), int(y))))
 
     def secondary_activate(self, x, y):
-        self._call("SecondaryActivate", GLib.Variant("(ii)", (int(x), int(y))))
+        return self._call("SecondaryActivate",
+                          GLib.Variant("(ii)", (int(x), int(y))))
 
     def context_menu(self, x, y):
-        self._call("ContextMenu", GLib.Variant("(ii)", (int(x), int(y))))
+        return self._call("ContextMenu", GLib.Variant("(ii)", (int(x), int(y))))
 
     def scroll(self, delta, orientation="vertical"):
-        self._call("Scroll", GLib.Variant("(is)", (int(delta), orientation)))
+        return self._call("Scroll",
+                          GLib.Variant("(is)", (int(delta), orientation)))
 
     @property
     def effective_icon(self):

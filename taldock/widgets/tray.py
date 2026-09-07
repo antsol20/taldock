@@ -96,10 +96,16 @@ class TrayItem(PanelItem):
                 item.context_menu(root_x, root_y)
             return True
         if button == 1:
-            item.activate(root_x, root_y)
+            # Many items implement no Activate and expect a left click to
+            # open their menu; nm-applet is one. Fall back rather than
+            # silently doing nothing.
+            if not item.activate(root_x, root_y):
+                if not self._show_menu(item, event):
+                    item.context_menu(root_x, root_y)
             return True
         if button == 2:
-            item.secondary_activate(root_x, root_y)
+            if not item.secondary_activate(root_x, root_y):
+                item.activate(root_x, root_y)
             return True
         return False
 

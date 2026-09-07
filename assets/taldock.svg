@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- taldock: three launchers on a dock bar, the middle one magnified.
+     Transparent background, so it sits cleanly on the panel beside the
+     other hand-drawn glyphs and still works as an application icon. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="a" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c8a2ff"/>
+      <stop offset="1" stop-color="#a97cf0"/>
+    </linearGradient>
+    <linearGradient id="b" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a8f0ff"/>
+      <stop offset="1" stop-color="#6fd8ee"/>
+    </linearGradient>
+    <linearGradient id="c" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff9fd8"/>
+      <stop offset="1" stop-color="#f56fb8"/>
+    </linearGradient>
+    <linearGradient id="d" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a2aacc"/>
+      <stop offset="1" stop-color="#767ea0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- launchers; the middle one is larger and raised, which is the dock's
+       magnification signature -->
+  <rect x="7"  y="26" width="13" height="13" rx="4" fill="url(#a)"/>
+  <rect x="24" y="22" width="16" height="16" rx="5" fill="url(#b)"/>
+  <rect x="44" y="26" width="13" height="13" rx="4" fill="url(#c)"/>
+
+  <!-- the dock bar -->
+  <rect x="5" y="43" width="54" height="10" rx="5" fill="url(#d)"/>
+</svg>

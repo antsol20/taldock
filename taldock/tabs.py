@@ -68,11 +68,17 @@ class TabRegistry(GObject.Object):
         self._clients = {}          # connection -> browser_key
         self._favicons = {}         # data url -> pixbuf | None
         self.service = None
+        self.secondary = False
         self._start()
 
     # -- socket server -----------------------------------------------------
     def _start(self):
         path = socket_path()
+        from .control import is_live
+        if is_live(path):
+            # Another dock is serving browser tabs; do not steal its socket.
+            self.secondary = True
+            return
         try:
             if os.path.exists(path):
                 os.unlink(path)
@@ -225,8 +231,9 @@ class TabRegistry(GObject.Object):
         return pixbuf
 
     def shutdown(self):
-        if self.service is not None:
-            self.service.stop()
+        if self.secondary or self.service is None:
+            return          # not ours to tear down
+        self.service.stop()
         try:
             os.unlink(socket_path())
         except OSError:

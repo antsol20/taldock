@@ -162,6 +162,10 @@ taldock --config /tmp/try.json
   subscription API (bound with ctypes), network from NetworkManager signals,
   battery from UPower properties, the tray from D-Bus. Only CPU and memory
   are sampled, and those skip the repaint when no pixel would change.
+- **The applications menu is built once**, then shown and hidden. Its rows
+  live in a `GtkListBox` with filter and sort functions, so searching and
+  switching category only re-filter an already-realised list — the menu
+  opens in about a millisecond.
 - **Cheap frames.** The bar background is rendered once into a cached
   surface; widgets invalidate only their own cell; magnification animates off
   the frame clock and stops itself when nothing is moving.

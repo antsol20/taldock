@@ -6,7 +6,7 @@ import os
 from gi.repository import GLib, Gtk
 
 from ..popup import Popup, label, separator
-from ..util import rgba, rounded_rect, with_alpha
+from ..util import launch_first, launch_in_terminal, rgba, rounded_rect, with_alpha
 from .base import PanelItem
 
 GAUGE_W = 7.0
@@ -225,10 +225,12 @@ class SysMonItem(PanelItem):
 
     def _launch_taskmanager(self, _btn, pop):
         pop.dismiss()
-        for cmd in ("xfce4-taskmanager", "gnome-system-monitor", "htop"):
-            try:
-                GLib.spawn_async(["/usr/bin/env", cmd],
-                                 flags=GLib.SpawnFlags.SEARCH_PATH)
+        if launch_first(("xfce4-taskmanager", "gnome-system-monitor",
+                         "plasma-systemmonitor", "mate-system-monitor",
+                         "lxtask")):
+            return
+        # No graphical monitor installed; fall back to a console one.
+        for console in ("btop", "htop", "top"):
+            if GLib.find_program_in_path(console) and launch_in_terminal([console]):
                 return
-            except GLib.Error:
-                continue
+        print("taldock: no system monitor found")

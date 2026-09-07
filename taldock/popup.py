@@ -22,7 +22,7 @@ class Popup(Gtk.Window):
 
     __gsignals__ = {"dismissed": (GObject.SignalFlags.RUN_LAST, None, ())}
 
-    def __init__(self, dock, padding=10, grab=True):
+    def __init__(self, dock, padding=10, grab=True, persistent=False):
         super().__init__(type=Gtk.WindowType.POPUP)
         self.dock = dock
         self.theme = dock.theme
@@ -31,6 +31,9 @@ class Popup(Gtk.Window):
         # popup, which restores the hover -- an open/close flicker loop.
         self._want_grab = grab
         self._grabbed = False
+        # A persistent popup is hidden rather than destroyed, so it can be
+        # shown again without paying to rebuild and realise its contents.
+        self.persistent = persistent
         self._anim = None
         self._t0 = 0.0
 
@@ -173,7 +176,23 @@ class Popup(Gtk.Window):
 
     def dismiss(self):
         self.emit("dismissed")
-        self.destroy()
+        if self.persistent:
+            self._ungrab()
+            self.hide()
+        else:
+            self.destroy()
+
+    def prewarm(self):
+        """Realise and draw off-screen so the first real open is instant.
+
+        Realising this widget tree costs ~300ms; showing an already-realised
+        one costs well under a millisecond.
+        """
+        self.move(-9000, -9000)
+        self.show_all()
+        while Gtk.events_pending():
+            Gtk.main_iteration()
+        self.hide()
 
     def release_references(self):
         """Subclass hook: clear collections that hold child widgets.
@@ -222,7 +241,12 @@ def css_provider(theme):
     .td-title {{ font-weight: 600; }}
     .td-row {{ border-radius: 8px; padding: 5px 8px; }}
     .td-row:hover {{ background: {h('hover', 0.10)}; }}
-    .td-row:selected, .td-selected {{ background: {h('accent', 0.28)}; }}
+    .td-row:selected, .td-selected, .td-row:checked {{
+        background: {h('accent', 0.28)};
+    }}
+    .td-row:checked:hover {{ background: {h('accent', 0.36)}; }}
+    list row:selected {{ background: {h('accent', 0.28)}; }}
+    list row {{ border-radius: 8px; }}
     .td-sep {{ background: {h('sep')}; min-height: 1px; }}
     entry.td-search {{
         background: {h('hover', 0.09)};

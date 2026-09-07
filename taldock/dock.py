@@ -441,7 +441,7 @@ class Dock:
             rounded_rect(cr, x, 4, width, height - 8, 10)
             cr.fill()
 
-        size = int(self.icon_size * 0.62)
+        size = int(self.icon_size * 0.68)
         surf = ICONS.surface(self.cfg["menu_icon"], size, self.scale,
                              fallback="applications-system")
         icon_x = x + 8
@@ -627,20 +627,31 @@ class Dock:
                      if m in self._menus else None)
 
     def _menu_popup_open(self):
-        return getattr(self, "_app_menu", None) is not None
+        menu = getattr(self, "_app_menu", None)
+        return menu is not None and menu.get_visible()
+
+    def app_menu(self):
+        """The one applications menu, built on first use."""
+        if getattr(self, "_app_menu", None) is None:
+            self._app_menu = AppMenuPopup(self)
+            self._app_menu.connect("dismissed", self._on_app_menu_closed)
+        return self._app_menu
+
+    def prewarm_app_menu(self):
+        """Pay the menu's build cost at startup, not on the first Super press."""
+        self.app_menu().prewarm()
+        return GLib.SOURCE_REMOVE
 
     def toggle_app_menu(self):
-        if getattr(self, "_app_menu", None) is not None:
-            self._app_menu.dismiss()
+        menu = self.app_menu()
+        if menu.get_visible():
+            menu.dismiss()
             return
-        popup = AppMenuPopup(self)
-        self._app_menu = popup
-        popup.connect("destroy", self._on_app_menu_closed)
-        popup.open_at(self.root_x() + self.padding, align="start")
+        menu.reset()
+        menu.open_at(self.root_x() + self.padding, align="start")
         self.area.queue_draw()
 
     def _on_app_menu_closed(self, *_a):
-        self._app_menu = None
         self.area.queue_draw()
 
     def item_center_root(self, item):
@@ -754,6 +765,9 @@ class Dock:
         self._apply_input_region()
         self._apply_strut()
         self.invalidate_layout()
+        # Build the applications menu once the dock itself is up, so the
+        # first Super press does not pay for it.
+        GLib.timeout_add(1200, self.prewarm_app_menu)
         return GLib.SOURCE_REMOVE
 
     def shutdown(self):

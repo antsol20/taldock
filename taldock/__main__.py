@@ -148,6 +148,15 @@ def main(argv=None):
     if not preflight():
         return 1
 
+    # A second dock would fight the first over struts, the tray watcher and
+    # the control socket, so refuse rather than half-start.
+    from .control import is_live
+    if is_live():
+        sys.stderr.write(
+            "taldock: already running (use --menu to open the menu, "
+            "or stop the existing one first)\n")
+        return 1
+
     if args.replace:
         subprocess.run(["xfce4-panel", "--quit"], check=False,
                        stderr=subprocess.DEVNULL)

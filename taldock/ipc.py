@@ -5,7 +5,7 @@ import os
 
 from gi.repository import Gio, GLib
 
-from .control import control_path
+from .control import control_path, is_live
 
 
 class ControlServer:
@@ -14,10 +14,17 @@ class ControlServer:
     def __init__(self, handlers):
         self.handlers = handlers      # {"menu": callable, ...}
         self.service = None
+        self.secondary = False
         self._start()
 
     def _start(self):
         path = control_path()
+        if is_live(path):
+            # Another dock owns the socket. Unlinking and rebinding here
+            # would silently break its Super key, which is what happened
+            # whenever a second Dock was constructed (a test tool, say).
+            self.secondary = True
+            return
         try:
             os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
             if os.path.exists(path):
@@ -40,6 +47,9 @@ class ControlServer:
                                self._on_line, connection)
         return True
 
+    def _handlers_with_ping(self):
+        return self.handlers
+
     def _on_line(self, stream, result, connection):
         try:
             line, _length = stream.read_line_finish(result)
@@ -49,6 +59,9 @@ class ControlServer:
         if line:
             command = (line.decode("utf-8", "replace") if isinstance(line, bytes)
                        else line).strip()
+        if command == "ping":
+            self._reply(connection, "ok")
+            return
         handler = self.handlers.get(command)
         if handler is not None:
             # Run the action after replying, so the caller is not held up by
@@ -72,8 +85,9 @@ class ControlServer:
             pass
 
     def shutdown(self):
-        if self.service is not None:
-            self.service.stop()
+        if self.secondary or self.service is None:
+            return          # not ours to tear down
+        self.service.stop()
         try:
             os.unlink(control_path())
         except OSError:

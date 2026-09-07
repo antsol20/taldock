@@ -99,6 +99,51 @@ def now():
 
 
 # --------------------------------------------------------------------------
+# launching helpers
+# --------------------------------------------------------------------------
+
+TERMINALS = ["x-terminal-emulator", "xfce4-terminal", "alacritty", "kitty",
+             "gnome-terminal", "konsole", "xterm"]
+
+
+def launch_first(commands):
+    """Spawn the first command whose binary actually exists.
+
+    Do not be tempted by ["/usr/bin/env", cmd]: that always spawns
+    successfully because /usr/bin/env exists, and the failure happens in the
+    child where no exception can reach us -- so a fallback list built that
+    way never gets past its first entry.
+    """
+    for command in commands:
+        argv = [command] if isinstance(command, str) else list(command)
+        binary = GLib.find_program_in_path(argv[0])
+        if binary is None:
+            continue
+        argv[0] = binary
+        try:
+            GLib.spawn_async(argv, flags=GLib.SpawnFlags.SEARCH_PATH)
+            return True
+        except GLib.Error as exc:
+            print(f"taldock: could not launch {argv[0]}: {exc}")
+    return False
+
+
+def launch_in_terminal(argv):
+    """Run a console program in whichever terminal emulator is installed."""
+    for terminal in TERMINALS:
+        binary = GLib.find_program_in_path(terminal)
+        if binary is None:
+            continue
+        try:
+            GLib.spawn_async([binary, "-e"] + list(argv),
+                             flags=GLib.SpawnFlags.SEARCH_PATH)
+            return True
+        except GLib.Error:
+            continue
+    return False
+
+
+# --------------------------------------------------------------------------
 # icons
 # --------------------------------------------------------------------------
 

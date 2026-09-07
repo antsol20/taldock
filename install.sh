@@ -43,6 +43,12 @@ chmod +x "$BIN/taldock"
 sed "s|^Exec=taldock$|Exec=$BIN/taldock|" "$SRC/taldock.desktop" > "$APPS/taldock.desktop"
 cp "$APPS/taldock.desktop" "$AUTOSTART/taldock.desktop"
 
+# Application icon, also used for the menu button.
+ICONS="$PREFIX/share/icons/hicolor/scalable/apps"
+mkdir -p "$ICONS"
+cp "$SRC/assets/taldock.svg" "$ICONS/taldock.svg"
+gtk-update-icon-cache -f -t "$PREFIX/share/icons/hicolor" >/dev/null 2>&1 || true
+
 # ------------------------------------------------- browser tab bridge (opt)
 HOST_SRC="$SRC/extension/host/taldock-tabs-host.py"
 HOST_DST="$LIB/taldock-tabs-host.py"

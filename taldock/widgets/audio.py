@@ -6,7 +6,8 @@ import math
 from gi.repository import GLib, Gtk
 
 from ..popup import Popup, label, separator
-from ..util import ease_out_cubic, now, rgba, rounded_rect, with_alpha
+from ..util import (ease_out_cubic, launch_first, now, rgba, rounded_rect,
+                     with_alpha)
 from .base import PanelItem
 
 ICON = 17.0
@@ -225,10 +226,7 @@ class AudioItem(PanelItem):
         return pop
 
     def _open_mixer(self):
-        for cmd in ("pavucontrol", "pavucontrol-qt", "xfce4-pulseaudio-plugin"):
-            try:
-                GLib.spawn_async(["/usr/bin/env", cmd],
-                                 flags=GLib.SpawnFlags.SEARCH_PATH)
-                return
-            except GLib.Error:
-                continue
+        if not launch_first(("pavucontrol", "pavucontrol-qt",
+                             "gnome-control-center sound", "qpwgraph",
+                             "helvum")):
+            print("taldock: no volume mixer found (try installing pavucontrol)")

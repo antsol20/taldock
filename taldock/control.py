@@ -16,6 +16,22 @@ def control_path():
     return os.path.join(runtime, "taldock", SOCKET_NAME)
 
 
+def is_live(path=None, timeout=0.4):
+    """True if something is actually listening on a unix socket.
+
+    A stale socket file left by a dead process still exists on disk but
+    refuses connections, so the file's presence proves nothing.
+    """
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect(path or control_path())
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
 def send(command, timeout=1.5):
     """Send one command to the running dock. True if it was acknowledged."""
     try:
