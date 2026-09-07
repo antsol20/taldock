@@ -106,8 +106,13 @@ class Popup(Gtk.Window):
             self._grab()
         self._animate_in()
 
-    def _grab(self):
-        """Take a seat grab so clicks anywhere else dismiss us."""
+    def _grab(self, attempt=0):
+        """Take a seat grab so clicks anywhere else dismiss us.
+
+        When opened from a keyboard shortcut the window manager may still
+        hold the keyboard, so the first attempt can fail; retry briefly
+        rather than leaving the popup unable to receive typing.
+        """
         window = self.get_window()
         if window is None:
             return
@@ -117,6 +122,13 @@ class Popup(Gtk.Window):
         self._grabbed = status == Gdk.GrabStatus.SUCCESS
         if self._grabbed:
             self.grab_add()
+        elif attempt < 6:
+            GLib.timeout_add(25, lambda: self._retry_grab(attempt + 1))
+
+    def _retry_grab(self, attempt):
+        if not self._grabbed and self.get_realized():
+            self._grab(attempt)
+        return GLib.SOURCE_REMOVE
 
     def _ungrab(self):
         if self._grabbed:

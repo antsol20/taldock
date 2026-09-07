@@ -12,6 +12,7 @@ GAP = 10.0              # horizontal gap between icon slots
 BOUNCE_SEC = 0.62
 APPEAR_SEC = 0.28
 ZOOM_ENVELOPE = 0.11    # seconds for magnification to ease in/out
+POINTER_TAU = 0.035     # pointer-following time constant, seconds
 
 
 def _normalise(label):
@@ -105,13 +106,19 @@ class LauncherZone:
         self.x = 0.0
         self.width = 0.0
         self.preferred_center = None
+        # pointer_x is smoothed and drives layout; _pointer_target is the raw
+        # position from the last motion event.
         self.pointer_x = None
+        self._pointer_target = None
+        self._hovering = False
+        self.extent = None          # (left, right) of the drawn row
         self.hover_index = -1
         self.pressed_index = -1
         self._zoom_amount = 0.0
         self._zoom_from = 0.0
         self._zoom_t0 = 0.0
-        self._anim_id = 0
+        self._tick_id = 0
+        self._last_frame = 0.0
         self._drag_index = -1
         self._drag_offset = 0.0
         self._drag_x = 0.0
@@ -219,6 +226,7 @@ class LauncherZone:
             for index, icon in enumerate(self.icons):
                 icon.scale = 1.0
                 icon.x = base_left + index * slot
+            self.extent = (base_left, base_left + natural)
             return
 
         # Scales come from the resting centres, so the falloff stays stable
@@ -231,13 +239,15 @@ class LauncherZone:
         widths = [self.icon_size * s for s in scales]
         total = sum(widths) + GAP * (count - 1)
 
-        # Anchor the icon nearest the pointer so it does not slide away.
-        anchor = min(range(count),
-                     key=lambda i: abs(self.pointer_x
-                                       - (base_left + i * slot + self.icon_size / 2)))
-        anchor_rest = base_left + anchor * slot + self.icon_size / 2.0
-        offset = sum(widths[:anchor]) + GAP * anchor + widths[anchor] / 2.0
-        left = anchor_rest - offset
+        # Grow the row about the pointer, preserving how far along the row the
+        # pointer sits. Every term here is continuous in pointer_x, so the row
+        # never jumps -- the previous version anchored to the nearest icon,
+        # which snapped each time a different icon became nearest.
+        # The pointer is clamped to the resting row so that a pointer out in
+        # the empty part of the zone leaves the row where it is.
+        grip = max(base_left, min(self.pointer_x, base_left + natural))
+        frac = (grip - base_left) / natural if natural > 0 else 0.5
+        left = grip - frac * total
         # Keep the magnified row inside the zone.
         left = max(self.x, min(left, self.x + self.width - total))
 
@@ -246,40 +256,67 @@ class LauncherZone:
             icon.scale = scales[index]
             icon.x = cursor
             cursor += widths[index] + GAP
+        self.extent = (left, left + total)
 
     # -- animation ---------------------------------------------------------
     def start_animation(self):
-        if self._anim_id:
-            return
-        self._anim_id = GLib.timeout_add(16, self._tick)
+        """Animate off the widget's frame clock.
 
-    def _tick(self):
+        A plain 16ms timeout drifts against the compositor and shows up as
+        stutter; the frame clock is what GTK paints on.
+        """
+        if self._tick_id:
+            return
+        self._last_frame = now()
+        self._tick_id = self.dock.area.add_tick_callback(self._on_frame)
+
+    def _on_frame(self, _widget, _clock):
+        moment = now()
+        dt = min(0.1, max(0.001, moment - self._last_frame))
+        self._last_frame = moment
         active = False
-        target = 1.0 if self.pointer_x is not None else 0.0
+
+        target = 1.0 if self._hovering else 0.0
         if abs(self._zoom_amount - target) > 0.002:
-            elapsed = (now() - self._zoom_t0) / ZOOM_ENVELOPE
-            eased = ease_out_cubic(min(1.0, elapsed))
-            self._zoom_amount = self._zoom_from + (target - self._zoom_from) * eased
-            active = elapsed < 1.0
+            elapsed = (moment - self._zoom_t0) / ZOOM_ENVELOPE
+            self._zoom_amount = self._zoom_from + (target - self._zoom_from) \
+                * ease_out_cubic(min(1.0, elapsed))
+            active = True
         else:
             self._zoom_amount = target
+            if not self._hovering:
+                # Fully collapsed: only now is it safe to forget the pointer,
+                # so the row eases back to rest instead of snapping on leave.
+                self.pointer_x = None
 
-        moment = now()
+        # Chase the pointer with an exponential ease. Motion events arrive
+        # unevenly and coalesced; following them raw is what made the
+        # magnification look jerky.
+        if self._pointer_target is not None and self.pointer_x is not None:
+            delta = self._pointer_target - self.pointer_x
+            if abs(delta) > 0.25:
+                self.pointer_x += delta * (1.0 - math.exp(-dt / POINTER_TAU))
+                active = True
+            else:
+                self.pointer_x = self._pointer_target
+
         for icon in self.icons:
-            if icon.bounce_t0 and moment - icon.bounce_t0 < BOUNCE_SEC:
-                active = True
-            elif icon.bounce_t0:
-                icon.bounce_t0 = 0.0
-            if icon.appear_t0 and moment - icon.appear_t0 < APPEAR_SEC:
-                active = True
-            elif icon.appear_t0:
-                icon.appear_t0 = 0.0
+            if icon.bounce_t0:
+                if moment - icon.bounce_t0 < BOUNCE_SEC:
+                    active = True
+                else:
+                    icon.bounce_t0 = 0.0
+            if icon.appear_t0:
+                if moment - icon.appear_t0 < APPEAR_SEC:
+                    active = True
+                else:
+                    icon.appear_t0 = 0.0
         if any(i.urgent for i in self.icons):
             active = True
 
         self.dock.queue_draw_center()
         if not active:
-            self._anim_id = 0
+            self._tick_id = 0
             return GLib.SOURCE_REMOVE
         return GLib.SOURCE_CONTINUE
 
@@ -375,12 +412,14 @@ class LauncherZone:
 
     # -- input -------------------------------------------------------------
     def on_motion(self, x, y):
-        was_hovering = self.pointer_x is not None
-        self.pointer_x = x
-        if not was_hovering:
+        if not self._hovering:
+            self._hovering = True
+            # Start from where the pointer actually entered rather than
+            # sliding in from a stale position.
+            self.pointer_x = x
             self._begin_zoom()
-        else:
-            self.start_animation()
+        self._pointer_target = x
+        self.start_animation()
         index = self.index_at(x, y)
         if index != self.hover_index:
             self.hover_index = index
@@ -388,11 +427,14 @@ class LauncherZone:
         self.dock.queue_draw_center()
 
     def on_leave(self):
-        if self.pointer_x is None:
+        if not self._hovering:
             return
-        self.pointer_x = None
+        self._hovering = False
+        self._pointer_target = None
         self.hover_index = -1
         self.pressed_index = -1
+        # pointer_x is kept until the envelope reaches zero, so the row
+        # shrinks back in place rather than snapping.
         self._begin_zoom()
         self.dock.on_launcher_hover(None)
 

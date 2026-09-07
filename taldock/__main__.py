@@ -3,8 +3,13 @@ from __future__ import annotations
 
 import argparse
 import os
-import signal
+import shutil
+import subprocess
 import sys
+
+# Keys XFCE binds to a bare Super press.
+SUPER_KEYS = ("Super_L", "Super_R")
+SHORTCUT_CHANNEL = "xfce4-keyboard-shortcuts"
 
 
 def preflight():
@@ -32,6 +37,83 @@ def preflight():
     return True
 
 
+# --------------------------------------------------------------------------
+# Super-key binding
+#
+# XFCE already binds a bare Super press through xfconf (that is how Whisker
+# Menu does it), and xfwm4 arbitrates it against Super+<key> combos. Grabbing
+# the key ourselves would swallow every other Super shortcut, so we reuse the
+# desktop's own mechanism.
+# --------------------------------------------------------------------------
+
+def _xfconf(*args):
+    try:
+        result = subprocess.run(["xfconf-query", "-c", SHORTCUT_CHANNEL] + list(args),
+                                capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def _backup_path():
+    from gi.repository import GLib
+    return os.path.join(GLib.get_user_config_dir(), "taldock", "super-binding.bak")
+
+
+def menu_command():
+    """The command line XFCE should run for a bare Super press."""
+    installed = shutil.which("taldock")
+    if installed:
+        return f"{installed} --menu"
+    # Running from a source checkout: point at this interpreter and package.
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return f"env PYTHONPATH={root} {sys.executable} -m taldock --menu"
+
+
+def bind_super():
+    command = menu_command()
+    previous = {}
+    for key in SUPER_KEYS:
+        current = _xfconf("-p", f"/commands/custom/{key}")
+        if current and current != command:
+            previous[key] = current
+        if _xfconf("-p", f"/commands/custom/{key}", "-n", "-t", "string",
+                   "-s", command) is None:
+            _xfconf("-p", f"/commands/custom/{key}", "-s", command)
+    if previous:
+        # Remember what was there so --unbind-super can put it back.
+        try:
+            path = _backup_path()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                for key, value in previous.items():
+                    fh.write(f"{key}\t{value}\n")
+        except OSError:
+            pass
+    print(f"taldock: Super now opens the applications menu ({command})")
+    return 0
+
+
+def unbind_super():
+    restore = {}
+    try:
+        with open(_backup_path(), encoding="utf-8") as fh:
+            for line in fh:
+                key, _, value = line.rstrip("\n").partition("\t")
+                if key and value:
+                    restore[key] = value
+    except OSError:
+        pass
+    for key in SUPER_KEYS:
+        value = restore.get(key)
+        if value:
+            _xfconf("-p", f"/commands/custom/{key}", "-s", value)
+        else:
+            _xfconf("-p", f"/commands/custom/{key}", "-r")
+    print("taldock: Super key binding restored")
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="taldock", description="A lightweight dock and panel for Xfce.")
@@ -41,19 +123,36 @@ def main(argv=None):
                         help="stop xfce4-panel before starting")
     parser.add_argument("--config", metavar="PATH",
                         help="use an alternate config file")
+    parser.add_argument("--menu", action="store_true",
+                        help="open the applications menu on the running dock")
+    parser.add_argument("--bind-super", action="store_true",
+                        help="make the Super key open the applications menu")
+    parser.add_argument("--unbind-super", action="store_true",
+                        help="undo --bind-super")
     args = parser.parse_args(argv)
 
+    if args.menu:
+        from .control import send
+        if send("menu"):
+            return 0
+        sys.stderr.write("taldock: not running\n")
+        return 1
     if args.version:
         from . import __version__
         print(f"taldock {__version__}")
         return 0
+    if args.bind_super:
+        return bind_super()
+    if args.unbind_super:
+        return unbind_super()
     if not preflight():
         return 1
 
     if args.replace:
-        import subprocess
         subprocess.run(["xfce4-panel", "--quit"], check=False,
                        stderr=subprocess.DEVNULL)
+
+    import signal
 
     from gi.repository import GLib, Gtk
     from .dock import Dock

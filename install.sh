@@ -64,6 +64,13 @@ for dir in \
 done
 [ "$installed_manifest" = 1 ] || warn "No Chromium-family browser profile found; skipped tab bridge."
 
+# ------------------------------------------------------- Super key binding
+# XFCE binds a bare Super press through xfconf; this repoints it (saving
+# whatever was there) so Super opens taldock's applications menu.
+if command -v xfconf-query >/dev/null 2>&1; then
+    PYTHONPATH="$LIB" python3 -m taldock --bind-super ||         warn "Could not bind the Super key."
+fi
+
 # ------------------------------------------------------------------- done
 say "Installed."
 cat <<EOF
@@ -72,6 +79,7 @@ cat <<EOF
   It will autostart on your next login.
 
   To stop using it and get xfce4-panel back:
+      $BIN/taldock --unbind-super
       pkill -f 'taldock' ; xfce4-panel &
       rm -f "$AUTOSTART/taldock.desktop"
 

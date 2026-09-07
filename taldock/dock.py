@@ -14,6 +14,7 @@ from gi.repository import (Gdk, GLib, Gtk, Pango,  # noqa: E402
 from . import x11
 from .appmenu import AppMenuPopup
 from .config import Config
+from .ipc import ControlServer
 from .popup import css_provider
 from .launchers import LauncherZone
 from .nm import NetworkMonitor
@@ -63,6 +64,10 @@ class Dock:
         self.network = NetworkMonitor()
         self.tray_host = StatusNotifierHost()
         self.tabs = TabRegistry(self.windows) if self.cfg["browser_tabs"] else None
+        self.control = ControlServer({
+            "menu": self.toggle_app_menu,
+            "quit": Gtk.main_quit,
+        })
 
         # -- geometry
         zoom = float(self.cfg["zoom_factor"]) if self.cfg["zoom"] else 1.0
@@ -452,13 +457,26 @@ class Dock:
             self.show_layout(cr, layout)
 
     def queue_draw_center(self):
-        """Invalidate just the launcher strip, full height for the headroom."""
+        """Invalidate only the icon row, full height so the headroom repaints.
+
+        The launcher zone spans most of the bar but the icons occupy a few
+        hundred pixels of it, and this runs every frame while magnifying.
+        The extent is last frame's, so it is padded to cover the row's growth
+        since then.
+        """
         if not self._layout_valid:
             self.area.queue_draw()
             return
-        self.area.queue_draw_area(int(self.launchers.x) - 2, 0,
-                                  int(self.launchers.width) + 4,
-                                  self.area.get_allocated_height())
+        height = self.area.get_allocated_height()
+        extent = self.launchers.extent
+        if extent is None:
+            self.area.queue_draw_area(int(self.launchers.x) - 2, 0,
+                                      int(self.launchers.width) + 4, height)
+            return
+        pad = self.icon_size * 2.0
+        x0 = max(0, int(extent[0] - pad))
+        x1 = int(extent[1] + pad)
+        self.area.queue_draw_area(x0, 0, x1 - x0, height)
 
     def queue_draw_status(self):
         self.area.queue_draw()
@@ -744,3 +762,5 @@ class Dock:
             x11.clear_strut(gdk_window.get_xid())
         if self.tabs is not None:
             self.tabs.shutdown()
+        if self.control is not None:
+            self.control.shutdown()

@@ -42,6 +42,25 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   `Popup(..., grab=False)` for hover, `grab=True` for click-opened popups.
 - **A handler returning `True` stops later handlers.** Cost an hour of
   debugging when instrumenting `_on_motion` from outside.
+- **Magnification layout must be continuous in `pointer_x`.** The first
+  version anchored the row to the icon nearest the pointer; when the nearest
+  icon changed, the row jumped ~10px in a single motion event, which is what
+  made it feel jerky. `layout()` now expands the row about the pointer's
+  fractional position along it. `tools/check_layout_continuity.py` is a
+  regression check for exactly this.
+- **Animate off the frame clock** (`add_tick_callback`), not a 16ms timeout,
+  and ease `pointer_x` toward the raw pointer: motion events arrive coalesced
+  and unevenly, so following them directly stutters.
+
+## Two things that look wrong but are deliberate
+
+- **The Super key goes through xfconf, not an X grab.** `XGrabKey` on
+  `Super_L` activates an active grab for as long as the key is held, so every
+  `Super`+key combo would stop reaching xfwm4. XFCE already binds a bare
+  Super press (that is how Whisker Menu does it); `--bind-super` just
+  repoints it and saves the old value.
+- **`--menu` must not import gi.** It is on the keypress path; the whole
+  point of the control socket is to keep that under ~100 ms.
 
 ## Verifying changes
 

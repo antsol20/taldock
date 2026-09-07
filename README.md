@@ -65,6 +65,20 @@ rm -f ~/.config/autostart/taldock.desktop
 | Scroll volume icon | Adjust volume (hold Shift for fine steps) |
 | Middle-click volume | Mute |
 | Click menu, then type | Search applications; ↑/↓ and Enter to launch |
+| **Super** | Open the applications menu, ready to type |
+
+### The Super key
+
+`install.sh` points XFCE's existing bare-Super binding at `taldock --menu`,
+which opens the applications menu with the search box already focused. It
+goes through xfconf — the same mechanism Whisker Menu uses — rather than
+grabbing the key directly, because an X grab on Super would swallow every
+`Super`+key shortcut you have. The previous binding is saved, so
+`taldock --unbind-super` puts it back.
+
+`taldock --menu` talks to the running dock over a unix socket and
+deliberately avoids importing GTK, so a keypress costs about 90 ms end to
+end rather than the ~300 ms a full interpreter start would.
 
 ## Browser tab stacking
 
