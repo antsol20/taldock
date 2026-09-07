@@ -6,7 +6,7 @@ import datetime as dt
 
 from gi.repository import GLib, Gtk
 
-from ..popup import Popup, css_provider, label, separator
+from ..popup import Popup, label, separator
 from ..util import rgba, rounded_rect, with_alpha
 from .base import PanelItem
 
@@ -95,9 +95,6 @@ class CalendarPopup(Popup):
         self.shown = self.today.replace(day=1)
 
         self.content.set_size_request(int(CELL * 7), -1)
-        Gtk.StyleContext.add_provider_for_screen(
-            self.get_screen(), css_provider(theme),
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.content.get_style_context().add_class("td-popup")
 
         header = Gtk.Box(spacing=4)

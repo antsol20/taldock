@@ -166,8 +166,10 @@ class WindowModel(GObject.Object):
         Wnck.set_client_type(Wnck.ClientType.PAGER)
         self.screen = Wnck.Screen.get_default()
         self.screen.force_update()
-        for sig in ("window-opened", "window-closed", "active-window-changed",
-                    "active-workspace-changed", "viewports-changed"):
+        self.screen.connect("window-opened", self._on_window_opened)
+        self.screen.connect("window-closed", self._on_window_closed)
+        for sig in ("active-window-changed", "active-workspace-changed",
+                    "viewports-changed"):
             self.screen.connect(sig, self._on_screen_event)
         for win in self.screen.get_windows():
             self._track(win)
@@ -217,12 +219,15 @@ class WindowModel(GObject.Object):
             self.appinfo.pop(key, None)
 
     # -- signal plumbing ---------------------------------------------------
-    def _on_screen_event(self, screen, obj=None, *_a):
-        if isinstance(obj, Wnck.Window):
-            if obj in self.keys and obj not in screen.get_windows():
-                self._untrack(obj)
-            else:
-                self._track(obj)
+    def _on_window_opened(self, _screen, window):
+        self._track(window)
+        self.queue_changed()
+
+    def _on_window_closed(self, _screen, window):
+        self._untrack(window)
+        self.queue_changed()
+
+    def _on_screen_event(self, _screen, *_a):
         self.queue_changed()
 
     def _on_window_state(self, window, *_a):

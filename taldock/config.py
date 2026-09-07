@@ -36,7 +36,7 @@ DEFAULTS = {
     "zoom": True,                  # plank-style magnification on hover
     "zoom_factor": 1.32,
     "zoom_range": 2.2,             # neighbours affected, in icon widths
-    "autohide": "none",            # none | autohide | intellihide
+    "autohide": "none",            # none | autohide
     "click_action": "cycle",       # cycle | expose (cycle windows on click)
     "hover_previews": True,        # window list popup on hover
     "hover_delay_ms": 420,

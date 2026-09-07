@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
 
-from .popup import Popup, css_provider, label, separator
+from .popup import Popup, label, separator
 
 # XDG main categories we surface, in display order.
 CATEGORIES = [
@@ -75,9 +75,6 @@ class AppMenuPopup(Popup):
         self.rows = []
         self.selected = 0
 
-        Gtk.StyleContext.add_provider_for_screen(
-            self.get_screen(), css_provider(self.theme),
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.content.get_style_context().add_class("td-popup")
         self.content.set_size_request(452, 0)
         self.content.set_margin_start(self.content.get_margin_start() + 12)
@@ -313,6 +310,10 @@ class AppMenuPopup(Popup):
             self.search.set_position(-1)
             return True
         return False
+
+    def release_references(self):
+        self.rows = []
+        self.category_buttons = []
 
     def open_at(self, anchor_x, align="start"):
         super().open_at(anchor_x, align)

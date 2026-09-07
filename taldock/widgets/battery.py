@@ -6,7 +6,7 @@ import os
 
 from gi.repository import Gio, GLib, Gtk
 
-from ..popup import Popup, css_provider, label, separator
+from ..popup import Popup, label, separator
 from ..util import rgba, rounded_rect, with_alpha
 from .base import PanelItem
 
@@ -99,11 +99,10 @@ class BatteryItem(PanelItem):
         self.redraw()
 
     # -- appearance --------------------------------------------------------
-    @property
-    def visible(self):
-        return self.present
-
     def measure(self, height):
+        # Desktops have no battery; take up no room at all there.
+        if not self.present:
+            return 0
         return BW + NUB_W + self.dock.text_width("100%", 8.5) + 18
 
     def _colour(self):
@@ -196,9 +195,6 @@ class BatteryItem(PanelItem):
     def _build_popup(self):
         pop = Popup(self.dock, padding=13)
         pop.content.set_size_request(230, -1)
-        Gtk.StyleContext.add_provider_for_screen(
-            pop.get_screen(), css_provider(self.theme),
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         pop.content.get_style_context().add_class("td-popup")
 
         head = Gtk.Box(spacing=8)

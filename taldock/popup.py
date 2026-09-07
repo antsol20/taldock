@@ -163,11 +163,34 @@ class Popup(Gtk.Window):
         self.emit("dismissed")
         self.destroy()
 
+    def release_references(self):
+        """Subclass hook: clear collections that hold child widgets.
+
+        Plain widget attributes are swept automatically by `destroy`; this is
+        for lists and dicts it cannot inspect.
+        """
+
     def destroy(self):
+        """Tear down, breaking the reference cycles GTK popups create.
+
+        Connecting a bound method (or a lambda closing over `self`) to a
+        signal on a widget this popup owns makes a cycle whose C-side edge
+        the Python collector cannot traverse. Destroying the content subtree
+        and then dropping every reference we hold to a child widget is what
+        actually lets the tree finalise -- verified by weakref: without both
+        steps, every popup ever opened stays alive.
+        """
         if self._anim:
             GLib.source_remove(self._anim)
             self._anim = None
         self._ungrab()
+        self.release_references()
+        if self.content is not None:
+            self.content.destroy()
+            self.content = None
+        for name, value in list(self.__dict__.items()):
+            if isinstance(value, Gtk.Widget) and value is not self:
+                self.__dict__[name] = None
         super().destroy()
 
 

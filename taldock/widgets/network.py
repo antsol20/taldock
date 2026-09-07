@@ -5,13 +5,15 @@ import math
 
 from gi.repository import GLib, Gtk
 
-from ..popup import Popup, css_provider, label, separator
+from ..popup import Popup, label, separator
 from ..util import rgba, rounded_rect, with_alpha
 from .base import PanelItem
 
 
 class NetworkItem(PanelItem):
     def setup(self):
+        self._networks_box = None
+        self._networks_header = None
         self.net = self.dock.network
         self.net.connect("changed", lambda *_a: self.redraw())
 
@@ -104,9 +106,6 @@ class NetworkItem(PanelItem):
     def _build_popup(self):
         pop = Popup(self.dock, padding=13)
         pop.content.set_size_request(276, -1)
-        Gtk.StyleContext.add_provider_for_screen(
-            pop.get_screen(), css_provider(self.theme),
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         pop.content.get_style_context().add_class("td-popup")
 
         if not self.net.available:
@@ -151,7 +150,7 @@ class NetworkItem(PanelItem):
         # The scan requested when the popup opened takes a second or two to
         # report, so refresh the list once results are in.
         source = GLib.timeout_add_seconds(2, self._rescan, pop)
-        pop.connect("destroy", lambda *_a: GLib.source_remove(source))
+        pop.connect("destroy", self._on_popup_destroyed, source)
 
         btn = Gtk.Button(label="Network connections")
         btn.get_style_context().add_class("td-btn")
@@ -159,6 +158,13 @@ class NetworkItem(PanelItem):
         pop.content.pack_start(btn, False, False, 5)
         pop.open_at(self.dock.item_center_root(self))
         return pop
+
+    def _on_popup_destroyed(self, _popup, source):
+        GLib.source_remove(source)
+        # These live on the panel item, which outlives the popup, so they
+        # would otherwise pin the whole popup widget tree in memory.
+        self._networks_box = None
+        self._networks_header = None
 
     def _fill_networks(self, pop):
         for child in self._networks_box.get_children():

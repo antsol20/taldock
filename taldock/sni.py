@@ -91,6 +91,7 @@ class TrayItem(GObject.Object):
         self.tooltip_text = ""
         self.menu_path = None
         self.item_is_menu = False
+        self._props = {}
         self._connect()
 
     # -- dbus --------------------------------------------------------------
@@ -109,43 +110,42 @@ class TrayItem(GObject.Object):
                 break
         if self.proxy is None:
             return
-        self.proxy.connect("g-properties-changed", lambda *_a: self.refresh())
+        self.proxy.connect("g-properties-changed", self._on_props_changed)
         self.proxy.connect("g-signal", self._on_signal)
+        self._fetch_all()
         self.refresh()
 
     def _on_signal(self, _proxy, _sender, signal, _params):
         if signal.startswith("New"):
             # Ayatana emits New* without a matching PropertiesChanged, so the
-            # cache must be invalidated by hand.
-            self._invalidate_and_refresh()
+            # proxy cache is stale. One GetAll beats a burst of per-property
+            # Gets: these signals fire often (every signal-strength change).
+            self._fetch_all()
+            self.refresh()
 
-    def _invalidate_and_refresh(self):
-        names = ("Status", "IconName", "AttentionIconName", "IconPixmap",
-                 "Title", "ToolTip", "IconThemePath")
-        for name in names:
-            try:
-                self.proxy.call_sync(
-                    "org.freedesktop.DBus.Properties.Get",
-                    GLib.Variant("(ss)", (self.iface, name)),
-                    Gio.DBusCallFlags.NONE, 1500, None)
-            except GLib.Error:
-                continue
-        self.refresh(force=True)
+    def _fetch_all(self):
+        try:
+            res = self.proxy.call_sync(
+                "org.freedesktop.DBus.Properties.GetAll",
+                GLib.Variant("(s)", (self.iface,)),
+                Gio.DBusCallFlags.NONE, 2000, None)
+            self._props = res.unpack()[0]
+        except GLib.Error:
+            self._props = {}
 
     def _prop(self, name, default=None):
+        if name in self._props:
+            return self._props[name]
         val = self.proxy.get_cached_property(name)
         if val is not None:
             return val.unpack()
-        try:
-            res = self.proxy.call_sync(
-                "org.freedesktop.DBus.Properties.Get",
-                GLib.Variant("(ss)", (self.iface, name)),
-                Gio.DBusCallFlags.NONE, 1500, None)
-            return res.unpack()[0]
-        except GLib.Error:
-            return default
+        return default
 
-    def refresh(self, force=False):
+    def _on_props_changed(self, _proxy, changed, _invalidated):
+        self._props.update(changed.unpack())
+        self.refresh()
+
+    def refresh(self):
         if self.proxy is None:
             return
         self.id = self._prop("Id", "") or ""

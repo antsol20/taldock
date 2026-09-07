@@ -14,6 +14,7 @@ from gi.repository import (Gdk, GLib, Gtk, Pango,  # noqa: E402
 from . import x11
 from .appmenu import AppMenuPopup
 from .config import Config
+from .popup import css_provider
 from .launchers import LauncherZone
 from .nm import NetworkMonitor
 from .pulse import PulseAudio
@@ -117,6 +118,11 @@ class Dock:
         visual = screen.get_rgba_visual()
         if visual is not None:
             self.window.set_visual(visual)
+        # One screen-wide stylesheet for every popup. Adding a provider per
+        # popup would stack them up forever and slow every style lookup.
+        Gtk.StyleContext.add_provider_for_screen(
+            screen, css_provider(self.theme),
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         screen.connect("monitors-changed", lambda *_a: self.update_geometry())
         screen.connect("size-changed", lambda *_a: self.update_geometry())
 

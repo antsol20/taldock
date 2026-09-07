@@ -5,7 +5,7 @@ import math
 
 from gi.repository import GLib, Gtk
 
-from ..popup import Popup, css_provider, label, separator
+from ..popup import Popup, label, separator
 from ..util import ease_out_cubic, now, rgba, rounded_rect, with_alpha
 from .base import PanelItem
 
@@ -127,9 +127,6 @@ class AudioItem(PanelItem):
     def _build_popup(self):
         pop = Popup(self.dock, padding=13)
         pop.content.set_size_request(268, -1)
-        Gtk.StyleContext.add_provider_for_screen(
-            pop.get_screen(), css_provider(self.theme),
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         pop.content.get_style_context().add_class("td-popup")
 
         if not self.pulse.available:

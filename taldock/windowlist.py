@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
 
-from .popup import Popup, css_provider, label, separator
+from .popup import Popup, label, separator
 from .util import ICONS
 
 ROW_ICON = 16
@@ -21,9 +21,6 @@ class WindowListPopup(Popup):
         self.model = dock.windows
         self.sticky = sticky
 
-        Gtk.StyleContext.add_provider_for_screen(
-            self.get_screen(), css_provider(self.theme),
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.content.get_style_context().add_class("td-popup")
         self.content.set_size_request(268, -1)
 
