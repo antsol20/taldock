@@ -87,6 +87,17 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   the menu is open it holds a seat grab, so xfwm4 never sees the key and the
   xfconf shortcut cannot fire to toggle it shut. `AppMenuPopup._on_key`
   treats Super/Meta like Escape.
+- **`ayatana-indicator-application` competes for the tray.** It autostarts
+  (`/etc/xdg/autostart` plus a systemd user unit), claims
+  `org.kde.StatusNotifierWatcher`, and does **not** allow name replacement --
+  so whichever of it and taldock starts first wins, and tray items register
+  with the winner. Symptom: the tray silently stays empty while
+  `busctl --user status org.kde.StatusNotifierWatcher` names something else.
+  It exists to feed `xfce4-indicator-plugin`, so it is masked on this
+  machine. Check the name's owner before assuming the tray code is at fault.
+- **Reply to `RegisterStatusNotifierItem` before building the item's proxy.**
+  Constructing it queries the caller synchronously, and the caller may still
+  be blocked on that very reply.
 - **Only one Dock may exist per session.** A second one unlinks and rebinds
   the control and tab sockets, silently breaking the running dock's Super
   key. Both servers probe for a live socket first, and `main()` refuses to

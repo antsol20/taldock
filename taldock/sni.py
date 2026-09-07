@@ -271,17 +271,24 @@ class StatusNotifierHost(GObject.Object):
             # Bare paths are relative to the caller's unique bus name.
             if service.startswith("/"):
                 service = sender + service
-            self.add_item(service)
-            self._emit_watcher_signal("StatusNotifierItemRegistered", service)
+            # Reply BEFORE touching the item. Building its proxy queries the
+            # caller synchronously, and the caller may still be blocked
+            # waiting for this very reply -- which loses the item entirely.
             invocation.return_value(None)
+            GLib.idle_add(self._register_item, service)
         elif method == "RegisterStatusNotifierHost":
             host = params.unpack()[0]
             if host not in self._registered_hosts:
                 self._registered_hosts.append(host)
-            self._emit_watcher_signal("StatusNotifierHostRegistered", None)
             invocation.return_value(None)
+            self._emit_watcher_signal("StatusNotifierHostRegistered", None)
         else:
             invocation.return_value(None)
+
+    def _register_item(self, service):
+        self.add_item(service)
+        self._emit_watcher_signal("StatusNotifierItemRegistered", service)
+        return GLib.SOURCE_REMOVE
 
     def _watcher_get_prop(self, _conn, _sender, _path, _iface, prop):
         if prop == "RegisteredStatusNotifierItems":

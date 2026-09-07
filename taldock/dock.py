@@ -282,10 +282,14 @@ class Dock:
         if width <= 1:
             width = self.window.get_allocated_width()
 
-        # Right zone: measure each item and place them right to left.
+        # Right zone: measure everything, drop redundant dividers, then
+        # place the survivors right to left.
+        for item in self.status_items:
+            item.w = float(item.measure(self.bar_height))
+        self._collapse_separators()
+
         cursor = width - self.padding
         for item in reversed(self.status_items):
-            item.w = float(item.measure(self.bar_height))
             if item.w <= 0:
                 item.x = cursor
                 continue
@@ -304,6 +308,28 @@ class Dock:
         # between the two side zones, which are very different widths.
         self.launchers.preferred_center = width / 2.0
         self._layout_valid = True
+
+    def _collapse_separators(self):
+        """Hide dividers that would sit at an edge or beside another divider.
+
+        A status widget can measure zero -- an empty system tray, a machine
+        with no battery -- and without this the dividers on either side of it
+        end up stacked together with nothing in between.
+        """
+        pending = None
+        seen_item = False
+        for item in self.status_items:
+            if isinstance(item, SeparatorItem):
+                item.w = 0.0
+                if seen_item:
+                    pending = item      # keep only if a real item follows
+                continue
+            if item.w <= 0:
+                continue
+            if pending is not None:
+                pending.w = float(pending.measure(self.bar_height))
+                pending = None
+            seen_item = True
 
     def _ensure_layout(self):
         if not self._layout_valid:

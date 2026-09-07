@@ -185,6 +185,24 @@ There is no unit-test suite: this is a GUI, and most of it has to be looked
 at. `CLAUDE.md` describes the approach that works, including why
 `xfce4-screenshooter` is the wrong tool for capturing hover states.
 
+## Troubleshooting
+
+**The system tray stays empty.** Something else has claimed the
+StatusNotifier name. Check who owns it:
+
+```sh
+busctl --user status org.kde.StatusNotifierWatcher
+```
+
+If that is not taldock, the usual culprit is
+`ayatana-indicator-application`, which autostarts on Xfce and will not yield
+the name. It exists to feed `xfce4-indicator-plugin`, so with the panel gone
+it can be masked:
+
+```sh
+systemctl --user mask ayatana-indicator-application.service
+```
+
 ## Known limitations
 
 - **X11 only.** Wayland would need a layer-shell rewrite.
