@@ -86,7 +86,7 @@ rm -rf ~/.local/share/taldock
 
 | Action | Result |
 | --- | --- |
-| **Super** | Applications menu, ready to type |
+| **Super** | Applications menu, ready to type (Super again closes it) |
 | Click launcher | Launch, or focus / cycle its windows |
 | Shift-click, middle-click | Always open a new window |
 | Hover a running launcher | Window list, with browser tabs when available |
@@ -95,6 +95,23 @@ rm -rf ~/.local/share/taldock
 | Scroll launcher | Cycle that app's windows |
 | Scroll volume icon | Adjust volume (Shift for fine steps) |
 | Middle-click volume | Mute |
+
+### In the applications menu
+
+Focus stays in the search box the whole time, so you can type at any point.
+
+| Key | Result |
+| --- | --- |
+| Type | Search every application |
+| **↓ / ↑** | Move through whichever column is active |
+| **←** | Step over to the categories |
+| **→** | Step back to the applications |
+| **Tab** | Toggle between the two |
+| **Enter** | Launch, or leave the categories for the applications |
+| **Esc**, **Super** | Close |
+
+← and → only change column once the text cursor has run out of query to
+move through, so a typed search stays editable.
 
 ### The Super key
 
@@ -138,6 +155,10 @@ so you can spell settings out explicitly without them being tidied away.
 | --- | --- | --- |
 | `position` | `"bottom"` | `bottom` or `top` |
 | `icon_size` | `38` | Launcher icon size |
+| `margin` | `8` | Gap between the bar and the screen edge it sits on |
+| `side_margin` | `10` | Gap at the left and right ends; `0` is edge to edge |
+| `padding` | `7` | Bar inner padding around the icons |
+| `radius` | `17` | Bar corner radius |
 | `zoom`, `zoom_factor` | `true`, `1.32` | Magnification |
 | `autohide` | `"none"` | `none` or `autohide` |
 | `opacity` | `0.95` | Bar translucency |
@@ -151,6 +172,11 @@ so you can spell settings out explicitly without them being tidied away.
 | `load_crit_at` | `0.70` | …are fully amber here, red at 100% |
 | `monitor` | `"primary"` | Or a connector name such as `eDP-1` |
 | `theme` | `{}` | Colour overrides, see `taldock/theme.py` |
+
+The bar always spans the monitor, so its width is set by `side_margin`, not
+by `margin`: `margin` is the gap to the edge the bar sits **on** (the bottom,
+by default), and `side_margin` the gap at the two ends. For a bar that runs
+the full width of the screen, set `side_margin` to `0`.
 
 `menu_height` sizes the application list, not the whole card — the search
 box and footer add a fixed ~133px. Anything that would run off the top of

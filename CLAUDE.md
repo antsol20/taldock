@@ -88,6 +88,31 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   nonsense (this was got wrong first time). The category column is inside
   its own scroller, because 11 buttons are taller than a small list and
   would otherwise set a floor `menu_height` could not go below.
+- **`margin` and `side_margin` are different axes.** The bar always spans
+  the monitor; `margin` is the gap to the edge it sits on and `side_margin`
+  the gap at the two ends, so only the latter changes its width. Asked for
+  in that order it is easy to reduce `margin` expecting a wider bar and see
+  the bar move down by a few pixels instead -- both are in the README table
+  now for that reason.
+
+- **The applications menu has two keyboard columns, without moving focus.**
+  Focus must stay in the search entry (see the `grab_focus` trap above), so
+  `AppMenuPopup.pane` is our own notion of which column the arrows drive,
+  drawn with the `td-idle` / `td-active` style classes rather than GTK
+  focus. Left/Right switch columns but only once the caret has run out of
+  query text in that direction (`_caret_can_leave`), or a typed search could
+  not be edited. `_move_category` sets `_syncing_category` while it toggles
+  a radio button, because `_on_category` otherwise cannot tell an arrow key
+  from a mouse click -- and a click should hand the arrows back to the apps.
+
+- **GTK themes bold the selected row; we undo it.** Dracula's
+  `widgets/cell-row.css` has `row:selected { font: bold; }`, so keyboard
+  selection rendered bold while mouse hover -- which has no such rule --
+  did not, and the two read as different things. `popup.py` sets
+  `font-weight: normal` on selected row labels; the accent background is
+  the whole selection cue. Check the theme before assuming our CSS is at
+  fault: `grep -rn 'bold' /usr/share/themes/<name>/gtk-3.0`.
+
 - **The CPU/memory colour ramp is configurable.** `Theme.load_ramp` is green
   below `load_warn_at`, blends to amber by `load_crit_at`, then to red at
   100%; the gauge glow starts at `load_crit_at` so colour and halo cannot

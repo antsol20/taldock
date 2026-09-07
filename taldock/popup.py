@@ -247,6 +247,17 @@ def css_provider(theme):
     .td-row:checked:hover {{ background: {h('accent', 0.36)}; }}
     list row:selected {{ background: {h('accent', 0.28)}; }}
     list row {{ border-radius: 8px; }}
+    /* GTK themes commonly bold a selected row (Dracula's cell-row.css does:
+       `row:selected {{ font: bold; }}`). Keyboard selection would then look
+       heavier than mouse hover, which cannot bold, so the two read as
+       different languages. The tinted background says "selected" on its own. */
+    list row:selected label, .td-row:selected label,
+    .td-row:checked label {{ font-weight: normal; }}
+    /* Which pane the arrow keys drive. The inactive one keeps a quieter
+       version of the same highlight rather than losing it, so you do not
+       lose your place when you step sideways. */
+    list.td-idle row:selected {{ background: {h('hover', 0.13)}; }}
+    .td-cat.td-active:checked {{ background: {h('accent', 0.44)}; }}
     .td-sep {{ background: {h('sep')}; min-height: 1px; }}
     entry.td-search {{
         background: {h('hover', 0.09)};

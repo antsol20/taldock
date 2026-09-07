@@ -105,6 +105,10 @@ class AppMenuPopup(Popup):
         self.appdb = dock.appdb
         self.category = None
         self.query = ""
+        # Which column the arrow keys drive. Focus always stays in the search
+        # entry (see _on_key), so this is our own notion, not GTK focus.
+        self.pane = "apps"
+        self._syncing_category = False
 
         self.content.get_style_context().add_class("td-popup")
         cfg = dock.cfg
@@ -175,6 +179,7 @@ class AppMenuPopup(Popup):
             btn.set_mode(False)
             btn.set_relief(Gtk.ReliefStyle.NONE)
             btn.get_style_context().add_class("td-row")
+            btn.get_style_context().add_class("td-cat")
             btn.set_property("xalign", 0.0)
             # Never take focus: it must stay in the search entry, or typing
             # after picking a category would go nowhere.
@@ -290,12 +295,19 @@ class AppMenuPopup(Popup):
     # -- input -------------------------------------------------------------
     def _on_search_changed(self, entry):
         self.query = entry.get_text().strip().lower()
+        if self.query:
+            # A search is over applications, so Down should move through the
+            # results rather than through categories you are no longer in.
+            self._set_pane("apps")
         self._reapply()
 
     def _on_category(self, button, key):
         if not button.get_active():
             return
         self.category = key
+        if not self._syncing_category:
+            # Clicked, not arrowed into: the next Down belongs to the apps.
+            self._set_pane("apps")
         # Without this, picking a category while a search is active appears to
         # do nothing: the query wins in _reapply and the list never changes.
         if self.query:
@@ -327,6 +339,73 @@ class AppMenuPopup(Popup):
         self.listbox.select_row(row)
         self._scroll_into_view(row)
 
+    # -- panes -------------------------------------------------------------
+    def _set_pane(self, pane):
+        """Point the arrow keys at the categories or the applications.
+
+        Focus is not moved: it has to stay in the search entry or Backspace
+        and the text cursor stop working (see the note in _on_key). So the
+        active pane is a style class instead -- the idle pane keeps a quieter
+        version of its highlight rather than losing it, so you can see where
+        you will land when you step back.
+        """
+        if pane == "categories" and (self.sidebar_width <= 0
+                                     or not self.category_buttons):
+            # The buttons still exist when menu_sidebar_width is 0, they are
+            # just never packed; arrowing into an invisible column would look
+            # like the keyboard had stopped working.
+            return
+        self.pane = pane
+        cats = pane == "categories"
+        ctx = self.listbox.get_style_context()
+        (ctx.add_class if cats else ctx.remove_class)("td-idle")
+        for btn in self.category_buttons:
+            ctx = btn.get_style_context()
+            (ctx.add_class if cats else ctx.remove_class)("td-active")
+
+    def _move_category(self, delta):
+        buttons = self.category_buttons
+        if not buttons:
+            return
+        index = next((i for i, b in enumerate(buttons) if b.get_active()), 0)
+        index = max(0, min(len(buttons) - 1, index + delta))
+        button = buttons[index]
+        if button.get_active():
+            return
+        # _on_category would otherwise read this as a mouse click and hand
+        # the arrows straight back to the application list.
+        self._syncing_category = True
+        try:
+            button.set_active(True)
+        finally:
+            self._syncing_category = False
+        self._scroll_category_into_view(button)
+
+    def _scroll_category_into_view(self, button):
+        adjustment = self._sidebar.get_vadjustment()
+        allocation = button.get_allocation()
+        page = adjustment.get_page_size()
+        value = adjustment.get_value()
+        if allocation.y < value:
+            adjustment.set_value(allocation.y)
+        elif allocation.y + allocation.height > value + page:
+            adjustment.set_value(allocation.y + allocation.height - page)
+
+    def _caret_can_leave(self, going_left):
+        """True if Left/Right is free to change pane rather than move the caret.
+
+        With text in the box those keys still belong to the entry, or the
+        query could not be edited; they only cross into the sidebar once the
+        caret has run out of text in that direction.
+        """
+        text = self.search.get_text()
+        if not text:
+            return True
+        if self.search.get_selection_bounds():
+            return False
+        position = self.search.get_position()
+        return position == 0 if going_left else position >= len(text)
+
     def _scroll_into_view(self, row):
         adjustment = self.scroller.get_vadjustment()
         allocation = row.get_allocation()
@@ -346,18 +425,40 @@ class AppMenuPopup(Popup):
             # xfwm4 never sees the key and could not toggle us shut.
             self.dismiss()
             return True
+        if key in (Gdk.KEY_Left, Gdk.KEY_Right):
+            if not self._caret_can_leave(key == Gdk.KEY_Left):
+                return False        # still editing the query
+            self._set_pane("categories" if key == Gdk.KEY_Left else "apps")
+            return True
+        step = 1 if key in (Gdk.KEY_Down, Gdk.KEY_Page_Down) else -1
         if key in (Gdk.KEY_Down, Gdk.KEY_Up):
-            self._move_selection(1 if key == Gdk.KEY_Down else -1)
+            if self.pane == "categories":
+                self._move_category(step)
+            else:
+                self._move_selection(step)
             return True
         if key in (Gdk.KEY_Page_Down, Gdk.KEY_Page_Up):
-            self._move_selection(8 if key == Gdk.KEY_Page_Down else -8)
+            if self.pane == "categories":
+                self._move_category(step * 4)
+            else:
+                self._move_selection(step * 8)
             return True
         if key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
-            self._launch_selected()
+            if self.pane == "categories":
+                # The category is already applied; Enter just says "now the
+                # apps", which is what Right does too.
+                self._set_pane("apps")
+            else:
+                self._launch_selected()
             return True
-        # Everything else -- Backspace, Delete, arrows within the text,
-        # printable characters -- belongs to the search entry, which keeps
-        # focus for exactly this reason.
+        if key == Gdk.KEY_Tab:
+            self._set_pane("apps" if self.pane == "categories"
+                           else "categories")
+            return True
+        # Everything else -- Backspace, Delete, Home/End, printable
+        # characters, and Left/Right while there is still text to move
+        # through -- belongs to the search entry, which keeps focus for
+        # exactly this reason.
         return False
 
     # -- actions -----------------------------------------------------------
@@ -414,6 +515,7 @@ class AppMenuPopup(Popup):
     def reset(self):
         """Return to a clean state before showing again."""
         self.category = None
+        self._set_pane("apps")
         if self.category_buttons:
             self.category_buttons[0].set_active(True)
         if self.search.get_text():
