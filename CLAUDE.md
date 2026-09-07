@@ -75,6 +75,11 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   zero -- an empty system tray, a machine with no battery -- which would
   otherwise leave two dividers stacked together. Measure first, collapse,
   then place.
+- **`Config.save()` keeps hand-written keys.** It writes keys that differ
+  from `DEFAULTS` *plus* any key that was present in the file on load
+  (`self._explicit`). Without that second half, spelling a setting out at
+  its default value would be silently deleted by the next save -- and a save
+  fires whenever a launcher is pinned or dragged.
 - **The applications menu is sized from config, and measured, not guessed.**
   `menu_width` / `menu_height` / `menu_sidebar_width` drive it;
   `_fit_to_screen()` measures the chrome and clamps the list so the card

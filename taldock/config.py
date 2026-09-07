@@ -86,7 +86,13 @@ class Config(dict):
 
     def __init__(self, path=CONFIG_PATH):
         self.path = path
-        super().__init__(_merge(DEFAULTS, self._read()))
+        raw = self._read()
+        # Keys the user has written stay in the file even when they equal a
+        # default. Without this, hand-editing a setting to its default value
+        # would see it silently deleted by the next save -- and a save
+        # happens whenever a launcher is pinned or reordered.
+        self._explicit = set(raw)
+        super().__init__(_merge(DEFAULTS, raw))
 
     def _read(self):
         try:
@@ -99,9 +105,11 @@ class Config(dict):
             return {}
 
     def save(self):
-        """Write only the keys that differ from the defaults, so upgrades
-        keep picking up new defaults instead of freezing old ones."""
-        diff = {k: v for k, v in self.items() if DEFAULTS.get(k) != v}
+        """Write the keys that differ from the defaults, plus any the user
+        wrote by hand, so upgrades still pick up new defaults for everything
+        else instead of freezing old ones."""
+        diff = {k: v for k, v in self.items()
+                if DEFAULTS.get(k) != v or k in self._explicit}
         try:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             tmp = self.path + ".tmp"

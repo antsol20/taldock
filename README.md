@@ -129,8 +129,10 @@ windows, just not tabs.
 
 ## Configuration
 
-`~/.config/taldock/config.json`. Only values that differ from the defaults are
-written, so new defaults are picked up on upgrade.
+`~/.config/taldock/config.json`. taldock writes back only the values that
+differ from the defaults, so new defaults are still picked up on upgrade —
+but any key **you** put in the file is kept even when it matches a default,
+so you can spell settings out explicitly without them being tidied away.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
