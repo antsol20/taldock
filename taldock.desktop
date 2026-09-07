@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=taldock
+Comment=Lightweight dock and panel for Xfce
+Exec=taldock
+Icon=taldock
+Terminal=false
+Categories=Utility;
+X-XFCE-Autostart-Enabled=true
+NoDisplay=true

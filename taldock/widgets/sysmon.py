@@ -58,6 +58,7 @@ class SysMonItem(PanelItem):
         self.swap_used = self.swap_total = 0
         self.history = []
         self._prev = _read_cpu()
+        self._drawn = None      # last (cpu_px, mem_px) actually rendered
 
     def measure(self, height):
         return GAUGE_W * 2 + GAUGE_GAP + 18
@@ -74,7 +75,13 @@ class SysMonItem(PanelItem):
             return
         self.history.append(self.cpu)
         del self.history[:-HISTORY]
-        self.redraw()
+        # The gauges are only GAUGE_H px tall, so most samples do not change
+        # a single pixel. Skipping those redraws is most of this widget's
+        # idle cost.
+        state = (round(GAUGE_H * self.cpu), round(GAUGE_H * self.mem))
+        if state != self._drawn:
+            self._drawn = state
+            self.redraw()
 
     # -- painting ----------------------------------------------------------
     def _gauge(self, cr, x, y, frac, color):

@@ -14,6 +14,11 @@ APPEAR_SEC = 0.28
 ZOOM_ENVELOPE = 0.11    # seconds for magnification to ease in/out
 
 
+def _normalise(label):
+    """Fold a menu label for comparison: no mnemonics, no case, no spacing."""
+    return "".join(ch for ch in label.lower() if ch.isalnum())
+
+
 class DockIcon:
     """One launcher slot: a pinned app, a running app, or both."""
 
@@ -476,16 +481,23 @@ class LauncherZone:
         menu = Gtk.Menu()
 
         if icon.appinfo is not None:
-            for action in icon.appinfo.list_actions():
-                item = Gtk.MenuItem(label=icon.appinfo.get_action_name(action))
+            actions = icon.appinfo.list_actions()
+            labels = set()
+            for action in actions:
+                name = icon.appinfo.get_action_name(action) or action
+                labels.add(_normalise(name))
+                item = Gtk.MenuItem(label=name)
                 item.connect("activate", lambda _i, a=action: icon.launch(action=a))
                 menu.append(item)
-            if icon.appinfo.list_actions():
+            if actions:
                 menu.append(Gtk.SeparatorMenuItem())
 
-            new_window = Gtk.MenuItem(label="New Window")
-            new_window.connect("activate", lambda _i: icon.launch())
-            menu.append(new_window)
+            # Many apps already ship a "New Window" desktop action; adding our
+            # own unconditionally would list it twice.
+            if _normalise("New Window") not in labels:
+                new_window = Gtk.MenuItem(label="New Window")
+                new_window.connect("activate", lambda _i: icon.launch())
+                menu.append(new_window)
 
         if icon.running:
             windows = self.model.windows_for(icon.key)

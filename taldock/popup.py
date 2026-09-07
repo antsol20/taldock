@@ -187,7 +187,7 @@ def css_provider(theme):
     .td-title {{ font-weight: 600; }}
     .td-row {{ border-radius: 8px; padding: 5px 8px; }}
     .td-row:hover {{ background: {h('hover', 0.10)}; }}
-    .td-row:selected {{ background: {h('accent', 0.28)}; }}
+    .td-row:selected, .td-selected {{ background: {h('accent', 0.28)}; }}
     .td-sep {{ background: {h('sep')}; min-height: 1px; }}
     entry.td-search {{
         background: {h('hover', 0.09)};

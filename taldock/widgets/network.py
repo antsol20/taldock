@@ -137,19 +137,21 @@ class NetworkItem(PanelItem):
         pop.content.pack_start(row, False, False, 0)
 
         # -- available networks
-        aps = self.net.access_points() if self.net.wifi_enabled else []
-        if aps:
-            pop.content.pack_start(separator(), False, False, 4)
-            pop.content.pack_start(label("Networks", "td-title"), False, False, 0)
-            scroller = Gtk.ScrolledWindow()
-            scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-            scroller.set_max_content_height(215)
-            scroller.set_propagate_natural_height(True)
-            listbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
-            for ap in aps[:14]:
-                listbox.pack_start(self._ap_row(ap, pop), False, False, 0)
-            scroller.add(listbox)
-            pop.content.pack_start(scroller, False, False, 0)
+        pop.content.pack_start(separator(), False, False, 4)
+        self._networks_header = label("Networks", "td-title")
+        pop.content.pack_start(self._networks_header, False, False, 0)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_max_content_height(215)
+        scroller.set_propagate_natural_height(True)
+        self._networks_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        scroller.add(self._networks_box)
+        pop.content.pack_start(scroller, False, False, 0)
+        self._fill_networks(pop)
+        # The scan requested when the popup opened takes a second or two to
+        # report, so refresh the list once results are in.
+        source = GLib.timeout_add_seconds(2, self._rescan, pop)
+        pop.connect("destroy", lambda *_a: GLib.source_remove(source))
 
         btn = Gtk.Button(label="Network connections")
         btn.get_style_context().add_class("td-btn")
@@ -157,6 +159,24 @@ class NetworkItem(PanelItem):
         pop.content.pack_start(btn, False, False, 5)
         pop.open_at(self.dock.item_center_root(self))
         return pop
+
+    def _fill_networks(self, pop):
+        for child in self._networks_box.get_children():
+            self._networks_box.remove(child)
+        aps = self.net.access_points() if self.net.wifi_enabled else []
+        if not aps:
+            self._networks_box.pack_start(
+                label("Scanning…" if self.net.wifi_enabled else "Wi-Fi is off",
+                      "td-dim"), False, False, 2)
+        for ap in aps[:14]:
+            self._networks_box.pack_start(self._ap_row(ap, pop), False, False, 0)
+        self._networks_box.show_all()
+
+    def _rescan(self, pop):
+        if not pop.get_realized():
+            return GLib.SOURCE_REMOVE
+        self._fill_networks(pop)
+        return GLib.SOURCE_REMOVE
 
     def _ap_row(self, ap, pop):
         btn = Gtk.Button()

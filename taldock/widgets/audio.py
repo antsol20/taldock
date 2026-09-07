@@ -209,11 +209,15 @@ class AudioItem(PanelItem):
                 pop.content.pack_start(btn, False, False, 0)
 
         pop.content.pack_start(separator(), False, False, 4)
-        mic = Gtk.ToggleButton(label="Microphone muted")
-        mic.get_style_context().add_class("td-btn")
-        mic.set_active(self.pulse.mic_mute)
-        mic.connect("toggled", lambda b: self.pulse.set_mic_mute(b.get_active()))
-        pop.content.pack_start(mic, False, False, 0)
+        mic_row = Gtk.Box(spacing=8)
+        mic_row.pack_start(label("Microphone"), True, True, 0)
+        mic = Gtk.Switch()
+        # The switch reads as "microphone is live", so it is the inverse of mute.
+        mic.set_active(not self.pulse.mic_mute)
+        mic.connect("notify::active",
+                    lambda sw, _p: self.pulse.set_mic_mute(not sw.get_active()))
+        mic_row.pack_end(mic, False, False, 0)
+        pop.content.pack_start(mic_row, False, False, 0)
 
         settings = Gtk.Button(label="Sound settings")
         settings.get_style_context().add_class("td-btn")

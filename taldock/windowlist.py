@@ -78,6 +78,7 @@ class WindowListPopup(Popup):
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroller.set_max_content_height(430)
+        scroller.set_min_content_height(0)
         scroller.set_propagate_natural_height(True)
         scroller.add(box)
         self.content.pack_start(scroller, False, False, 0)

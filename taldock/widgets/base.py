@@ -62,7 +62,7 @@ class PanelItem:
         return self.width or height
 
     def redraw(self):
-        self.dock.queue_draw_status()
+        self.dock.queue_draw_item(self)
 
     # -- painting ----------------------------------------------------------
     def draw(self, cr, w, h):

@@ -216,14 +216,30 @@ class AppMenuPopup(Popup):
         return btn
 
     def _sync_selection(self):
+        # A style class, not StateFlags.SELECTED: buttons do not carry a
+        # selected state, so the flag would never paint.
         for index, (row, _app) in enumerate(self.rows):
             ctx = row.get_style_context()
             if index == self.selected:
-                ctx.set_state(Gtk.StateFlags.SELECTED)
+                ctx.add_class("td-selected")
             else:
-                ctx.set_state(Gtk.StateFlags.NORMAL)
+                ctx.remove_class("td-selected")
         if 0 <= self.selected < len(self.rows):
-            self.rows[self.selected][0].grab_focus()
+            row = self.rows[self.selected][0]
+            row.grab_focus()
+            self._scroll_into_view(row)
+
+    def _scroll_into_view(self, row):
+        """Keep the keyboard selection visible as it moves down the list."""
+        adjustment = self.scroller.get_vadjustment()
+        allocation = row.get_allocation()
+        top, bottom = allocation.y, allocation.y + allocation.height
+        page = adjustment.get_page_size()
+        value = adjustment.get_value()
+        if top < value:
+            adjustment.set_value(top)
+        elif bottom > value + page:
+            adjustment.set_value(bottom - page)
 
     # -- actions -----------------------------------------------------------
     def _launch(self, app):

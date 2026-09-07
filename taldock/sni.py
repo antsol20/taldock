@@ -304,23 +304,31 @@ class StatusNotifierHost(GObject.Object):
             Gio.BusType.SESSION, WATCHER_NAME, Gio.BusNameWatcherFlags.NONE,
             self._on_watcher_appeared, self._on_watcher_vanished)
 
-    def _on_watcher_appeared(self, _conn, _name, _owner):
+    def _on_watcher_appeared(self, _conn, _name, owner):
+        # When we are the watcher, talking to it means talking to ourselves.
+        # Any synchronous call here would block the very main loop that has
+        # to answer it, so short-circuit: items register straight into
+        # self.items through _watcher_method.
+        if owner and owner == self.bus.get_unique_name():
+            return
+        # A foreign watcher (another panel) is in charge. Everything below is
+        # asynchronous for the same deadlock-avoidance reason.
+        Gio.DBusProxy.new_for_bus(
+            Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
+            WATCHER_NAME, WATCHER_PATH, WATCHER_NAME, None,
+            self._on_watcher_proxy_ready, None)
+
+    def _on_watcher_proxy_ready(self, _source, result, _data):
         try:
-            self._watcher_proxy = Gio.DBusProxy.new_for_bus_sync(
-                Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
-                WATCHER_NAME, WATCHER_PATH, WATCHER_NAME, None)
+            proxy = Gio.DBusProxy.new_for_bus_finish(result)
         except GLib.Error:
             return
-        self._watcher_proxy.connect("g-signal", self._on_watcher_signal)
-        try:
-            self._watcher_proxy.call_sync(
-                "RegisterStatusNotifierHost",
-                GLib.Variant("(s)", (self.host_name,)),
-                Gio.DBusCallFlags.NONE, 2000, None)
-        except GLib.Error:
-            pass
-        existing = self._watcher_proxy.get_cached_property(
-            "RegisteredStatusNotifierItems")
+        self._watcher_proxy = proxy
+        proxy.connect("g-signal", self._on_watcher_signal)
+        proxy.call("RegisterStatusNotifierHost",
+                   GLib.Variant("(s)", (self.host_name,)),
+                   Gio.DBusCallFlags.NONE, 2000, None, None, None)
+        existing = proxy.get_cached_property("RegisteredStatusNotifierItems")
         for service in (existing.unpack() if existing else []):
             self.add_item(service)
 

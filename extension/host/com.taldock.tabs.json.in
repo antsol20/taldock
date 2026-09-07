@@ -1,0 +1,9 @@
+{
+  "name": "com.taldock.tabs",
+  "description": "taldock tab bridge",
+  "path": "@HOST_PATH@",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://ahiffodbahdhednjpdndbnalcmpejfhe/"
+  ]
+}

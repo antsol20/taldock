@@ -79,6 +79,8 @@ class Dock:
         self._hover_source = 0
         self._close_source = 0
         self._layout_valid = False
+        self._bg_surface = None     # cached bar background
+        self._bg_key = None
         self._hide_state = 0.0      # 0 = shown, 1 = hidden
         self._hide_anim = 0
         self._hide_t0 = 0.0
@@ -258,6 +260,7 @@ class Dock:
     # ------------------------------------------------------------------
     def invalidate_layout(self):
         self._layout_valid = False
+        self._bg_key = None
         self.area.queue_draw()
 
     def invalidate_status_layout(self):
@@ -362,12 +365,31 @@ class Dock:
         return False
 
     def _draw_background(self, cr, x, y, width, height):
+        """Blit the cached bar background.
+
+        The gradient, layered shadow and border never change between frames,
+        so they are rendered once and reused. This keeps a status widget's
+        two-second tick from repainting 1900px of gradient.
+        """
+        import cairo
+        key = (int(width), int(height), self.cfg["radius"], self.at_bottom(),
+               id(self.theme))
+        if self._bg_key != key or self._bg_surface is None:
+            surface = cairo.ImageSurface(cairo.FORMAT_ARGB32,
+                                         int(width), int(height))
+            self._render_background(cairo.Context(surface), width, height)
+            self._bg_surface = surface
+            self._bg_key = key
+        cr.set_source_surface(self._bg_surface, x, y)
+        cr.paint()
+
+    def _render_background(self, cr, width, height):
         radius = float(self.cfg["radius"])
-        draw_shadow(cr, x + 1, y, width - 2, height, radius, 7,
+        draw_shadow(cr, 1, 0, width - 2, height, radius, 7,
                     self.theme["shadow"])
 
-        gradient = self._gradient(y, height)
-        rounded_rect(cr, x, y, width, height, radius)
+        gradient = self._gradient(0, height)
+        rounded_rect(cr, 0, 0, width, height, radius)
         cr.set_source(gradient)
         cr.fill()
 
@@ -375,16 +397,16 @@ class Dock:
         # what gives the bar its raised, glassy look.
         rgba(cr, self.theme["border"])
         cr.set_line_width(1.0)
-        rounded_rect(cr, x + 0.5, y + 0.5, width - 1, height - 1, radius)
+        rounded_rect(cr, 0.5, 0.5, width - 1, height - 1, radius)
         cr.stroke()
 
         cr.save()
-        rounded_rect(cr, x + 1, y + 1, width - 2, height - 2, radius - 1)
+        rounded_rect(cr, 1, 1, width - 2, height - 2, radius - 1)
         cr.clip()
         rgba(cr, self.theme["sheen"])
         cr.set_line_width(1.4)
-        cr.move_to(x + radius * 0.6, y + 1.0)
-        cr.line_to(x + width - radius * 0.6, y + 1.0)
+        cr.move_to(radius * 0.6, 1.0)
+        cr.line_to(width - radius * 0.6, 1.0)
         cr.stroke()
         cr.restore()
 
@@ -424,10 +446,24 @@ class Dock:
             self.show_layout(cr, layout)
 
     def queue_draw_center(self):
-        self.area.queue_draw()
+        """Invalidate just the launcher strip, full height for the headroom."""
+        if not self._layout_valid:
+            self.area.queue_draw()
+            return
+        self.area.queue_draw_area(int(self.launchers.x) - 2, 0,
+                                  int(self.launchers.width) + 4,
+                                  self.area.get_allocated_height())
 
     def queue_draw_status(self):
         self.area.queue_draw()
+
+    def queue_draw_item(self, item):
+        """Invalidate one status cell -- the common case for ticking widgets."""
+        if not self._layout_valid or item.w <= 0:
+            self.area.queue_draw()
+            return
+        self.area.queue_draw_area(int(item.x) - 1, int(self.bar_top()),
+                                  int(item.w) + 2, int(self.bar_height))
 
     # ------------------------------------------------------------------
     # input
