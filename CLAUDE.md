@@ -68,6 +68,21 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   and ease `pointer_x` toward the raw pointer: motion events arrive coalesced
   and unevenly, so following them directly stutters.
 
+## Behaviour worth knowing before you change it
+
+- **Status dividers collapse.** `Dock._collapse_separators()` hides a `sep`
+  unless a visible widget sits on both sides, because widgets can measure
+  zero -- an empty system tray, a machine with no battery -- which would
+  otherwise leave two dividers stacked together. Measure first, collapse,
+  then place.
+- **The CPU/memory colour ramp has a wide green band.** `Theme.load_ramp`
+  is pure green below 60%, blends green to amber over 60-85%, then amber to
+  red to 100%; above 80% the gauge also draws a glow. Verified under real
+  load: 52% green, 89% amber, 100% red. The consequence is that everything
+  below 60% looks identical, so an ordinarily busy desktop never leaves
+  green. That is deliberate (do not cry wolf) but it is the first thing to
+  revisit if the gauges feel uninformative.
+
 ## Things that look wrong but are deliberate
 
 - **The applications menu is built once and reused**, not rebuilt per open.

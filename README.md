@@ -187,6 +187,17 @@ at. `CLAUDE.md` describes the approach that works, including why
 
 ## Troubleshooting
 
+**The Wi-Fi icon appears twice.** taldock has its own Wi-Fi widget, so
+`nm-applet`'s tray icon is redundant. Mask it per-user if you do not want
+both — but note nm-applet is also NetworkManager's secret agent, so without
+it a *new* password-protected network has to be added through
+`nm-connection-editor` rather than prompting:
+
+```sh
+printf '[Desktop Entry]\nType=Application\nName=Network\nExec=nm-applet\nHidden=true\n' \
+    > ~/.config/autostart/nm-applet.desktop
+```
+
 **The system tray stays empty.** Something else has claimed the
 StatusNotifier name. Check who owns it:
 
