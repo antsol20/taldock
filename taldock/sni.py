@@ -11,6 +11,7 @@ from gi.repository import Gdk, GdkPixbuf, Gio, GLib, GObject, Gtk
 WATCHER_NAME = "org.kde.StatusNotifierWatcher"
 WATCHER_PATH = "/StatusNotifierWatcher"
 ITEM_IFACES = ("org.kde.StatusNotifierItem", "org.ayatana.NotificationItem")
+REAP_INTERVAL_S = 180
 
 WATCHER_XML = """
 <node>
@@ -73,7 +74,8 @@ def pixmap_to_pixbuf(pixmaps):
 class TrayItem(GObject.Object):
     """One tray icon, mirroring a remote StatusNotifierItem."""
 
-    __gsignals__ = {"changed": (GObject.SignalFlags.RUN_LAST, None, ())}
+    __gsignals__ = {"changed": (GObject.SignalFlags.RUN_LAST, None, ()),
+                    "gone": (GObject.SignalFlags.RUN_LAST, None, ())}
 
     def __init__(self, service):
         super().__init__()
@@ -186,6 +188,10 @@ class TrayItem(GObject.Object):
         Plenty of Ayatana items (nm-applet among them) implement no Activate
         at all and expect a left click to open their menu, so callers need to
         know whether the call actually landed.
+
+        A failure may also mean the item is a corpse -- see is_alive() -- so
+        check before reporting "not implemented" and letting the caller fall
+        back to a menu that is equally gone.
         """
         if self.proxy is None:
             return False
@@ -194,7 +200,71 @@ class TrayItem(GObject.Object):
                                  2000, None)
             return True
         except GLib.Error:
+            if not self.is_alive():
+                self.emit("gone")
             return False
+
+    @staticmethod
+    def _is_dead_error(exc):
+        """True when the peer answered "that object does not exist".
+
+        A timeout means busy, not dead: an item that is merely slow must not
+        be thrown away.
+        """
+        return (exc.matches(Gio.dbus_error_quark(),
+                            Gio.DBusError.UNKNOWN_METHOD)
+                or exc.matches(Gio.dbus_error_quark(),
+                               Gio.DBusError.UNKNOWN_OBJECT)
+                or exc.matches(Gio.dbus_error_quark(),
+                               Gio.DBusError.SERVICE_UNKNOWN)
+                or "Object destroyed" in (exc.message or ""))
+
+    def probe(self):
+        """Asynchronously check the object still exists; emit "gone" if not.
+
+        Must not be the synchronous version: this runs on a timer with no
+        user waiting for it, and a hung tray application would otherwise
+        stall the whole bar for the call timeout.
+        """
+        if self.proxy is None:
+            self.emit("gone")
+            return
+        self.proxy.call("org.freedesktop.DBus.Properties.GetAll",
+                        GLib.Variant("(s)", (self.iface,)),
+                        Gio.DBusCallFlags.NONE, 5000, None,
+                        self._on_probe_done, None)
+
+    def _on_probe_done(self, proxy, result, _data):
+        try:
+            proxy.call_finish(result)
+        except GLib.Error as exc:
+            if self._is_dead_error(exc):
+                self.emit("gone")
+
+    def is_alive(self):
+        """False once the remote object has been torn down.
+
+        An application is meant to drop its bus name or call
+        UnregisterStatusNotifierItem when it destroys its tray icon. Some do
+        neither: the Claude desktop app destroys the object but keeps the
+        connection open, so the name still exists, nothing is signalled, and
+        the last icon we fetched would sit in the tray for ever doing
+        nothing when clicked. The only way to find out is to ask.
+
+        The bus answers for a destroyed object with UnknownMethod
+        ("Method is no longer available") or Failed ("Object destroyed"),
+        both of which come from the peer, so a live item never trips this.
+        """
+        if self.proxy is None:
+            return False
+        try:
+            self.proxy.call_sync(
+                "org.freedesktop.DBus.Properties.GetAll",
+                GLib.Variant("(s)", (self.iface,)),
+                Gio.DBusCallFlags.NONE, 2000, None)
+            return True
+        except GLib.Error as exc:
+            return not self._is_dead_error(exc)
 
     def activate(self, x, y):
         return self._call("Activate", GLib.Variant("(ii)", (int(x), int(y))))
@@ -237,6 +307,7 @@ class StatusNotifierHost(GObject.Object):
         self._own_watcher()
         self._own_host_name()
         self._watch_watcher()
+        self._reap_id = GLib.timeout_add_seconds(REAP_INTERVAL_S, self._reap)
 
     # -- watcher side ------------------------------------------------------
     def _own_watcher(self):
@@ -366,6 +437,7 @@ class StatusNotifierHost(GObject.Object):
             return
         self.items[service] = item
         item.connect("changed", lambda *_a: self.emit("items-changed"))
+        item.connect("gone", lambda *_a, s=service: self.remove_item(s))
         # Drop the icon when its owner leaves the bus.
         if item.bus_name:
             item._watch_id = Gio.bus_watch_name(
@@ -383,6 +455,19 @@ class StatusNotifierHost(GObject.Object):
             Gio.bus_unwatch_name(watch)
         self._emit_watcher_signal("StatusNotifierItemUnregistered", service)
         self.emit("items-changed")
+
+    def _reap(self):
+        """Drop items whose remote object has been destroyed.
+
+        The one piece of polling in the dock, and it is here because there is
+        nothing to push: an application that tears down its tray object
+        without dropping its bus name emits no signal at all, so a dead icon
+        would otherwise stay in the tray until something clicked it. One
+        D-Bus round trip per item every few minutes is cheaper than that.
+        """
+        for item in list(self.items.values()):
+            item.probe()            # async; removes itself via "gone"
+        return GLib.SOURCE_CONTINUE
 
     def visible_items(self):
         return [i for i in self.items.values() if i.status != "Passive"]

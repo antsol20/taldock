@@ -113,6 +113,21 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   the whole selection cue. Check the theme before assuming our CSS is at
   fault: `grep -rn 'bold' /usr/share/themes/<name>/gtk-3.0`.
 
+- **Dead tray items have to be found by asking.** An app is meant to drop
+  its bus name or call `UnregisterStatusNotifierItem` when it destroys its
+  tray icon. The Claude desktop app does neither: it destroys the object,
+  keeps the connection open, and the bus then answers property reads with
+  `UnknownMethod` ("Method is no longer available") and method calls with
+  `Failed` ("Object destroyed"). Nothing is signalled, so the last icon we
+  fetched sat in the tray for ever and did nothing when clicked.
+  `TrayItem.is_alive()` / `probe()` ask the peer; a dead answer emits `gone`
+  and the host drops the item. `StatusNotifierHost._reap` is the one piece
+  of polling in the dock (`REAP_INTERVAL_S`), and it is async on purpose --
+  a synchronous sweep would stall the bar for the call timeout whenever a
+  tray application hung. Distinguish carefully: a timeout means busy, not
+  dead, and plenty of items (nm-applet) legitimately implement no
+  `Activate`.
+
 - **The CPU/memory colour ramp is configurable.** `Theme.load_ramp` is green
   below `load_warn_at`, blends to amber by `load_crit_at`, then to red at
   100%; the gauge glow starts at `load_crit_at` so colour and halo cannot
@@ -155,8 +170,12 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
 - **Only one Dock may exist per session.** A second one unlinks and rebinds
   the control and tab sockets, silently breaking the running dock's Super
   key. Both servers probe for a live socket first, and `main()` refuses to
-  start a second instance. Test tools that construct a `Dock` directly are
-  fine -- they just get `secondary = True` and no sockets.
+  start a second instance. Test tools that construct a `Dock` directly get
+  `secondary = True` and no sockets -- but `secondary` covers *only* the two
+  socket servers. A second `Dock` still builds a `StatusNotifierHost`, which
+  owns the watcher name with `REPLACE`, so it takes the tray away from the
+  running dock. Test tray code against a throwaway item on the bus instead
+  of constructing a `Dock`.
 
 ## Verifying changes
 

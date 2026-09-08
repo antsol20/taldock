@@ -251,6 +251,23 @@ it can be masked:
 systemctl --user mask ayatana-indicator-application.service
 ```
 
+**A tray icon does nothing when clicked.** Its application destroyed the
+icon without telling anyone — the D-Bus name stays registered, so nothing
+signals that the object is gone and the stale icon keeps being drawn.
+taldock now checks: a click on a dead item, and a sweep every few minutes,
+both drop it from the tray. You can confirm an item is a corpse yourself:
+
+```sh
+busctl --user get-property org.kde.StatusNotifierWatcher \
+    /StatusNotifierWatcher org.kde.StatusNotifierWatcher \
+    RegisteredStatusNotifierItems
+gdbus call --session --dest :1.55 --object-path /StatusNotifierItem \
+    --method org.kde.StatusNotifierItem.Activate 0 0
+```
+
+`Object destroyed` or `Method is no longer available` means the application
+is at fault, not the tray. Restart that application to get its icon back.
+
 ## Known limitations
 
 - **X11 only.** Wayland would need a layer-shell rewrite.
