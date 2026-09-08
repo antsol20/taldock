@@ -163,12 +163,28 @@ class Popup(Gtk.Window):
         return False
 
     def _on_button(self, _w, event):
-        # With a seat grab every click lands here; only outside ones dismiss.
+        """Dismiss on a click outside us. Root coordinates only.
+
+        With a seat grab GTK routes clicks on our *own* other windows -- the
+        bar itself -- to this handler, but it does not translate the
+        coordinates: event.x/y still refer to the window the click actually
+        landed on. Testing those against our allocation therefore called a
+        click on the bar "inside" whenever it happened to fall within our
+        width, so the menu button swallowed the click instead of closing,
+        and the menu could not be toggled shut. event.x_root/y_root are
+        absolute and mean the same thing whichever window reported them.
+        """
         if not self._want_grab:
             return False
+        window = self.get_window()
+        if window is None:
+            return False
+        _, origin_x, origin_y = window.get_origin()
+        x = event.x_root - origin_x
+        y = event.y_root - origin_y
         alloc = self.get_allocation()
-        inside = (SHADOW <= event.x <= alloc.width - SHADOW
-                  and SHADOW <= event.y <= alloc.height - SHADOW)
+        inside = (SHADOW <= x <= alloc.width - SHADOW
+                  and SHADOW <= y <= alloc.height - SHADOW)
         if not inside:
             self.dismiss()
             return True

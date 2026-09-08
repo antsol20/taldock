@@ -64,6 +64,19 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   colour is pure black, so on our bar only its brightest bar survived and it
   read as "one tall bar, or none". `ICONS.symbolic_surface()` prefers the
   monochrome scalable variant and tints it with the panel foreground.
+- **A grabbed popup's dismiss test must use root coordinates.** With a seat
+  grab GTK routes clicks on our *own* other windows -- the bar -- to the
+  popup's `button-press-event`, but does **not** translate the coordinates:
+  `event.x/y` still refer to the window the click landed on. Comparing those
+  against the popup's allocation called a click on the bar "inside" whenever
+  it happened to fall within the popup's width, so the applications menu
+  swallowed clicks on the menu button (and on the left third of the bar)
+  instead of closing, and could not be toggled shut. `Popup._on_button`
+  subtracts the popup window's origin from `event.x_root/y_root`. Note the
+  symptom is position-dependent: clicking the bar *beyond* the popup's width
+  always worked, which makes this look like a menu-button bug rather than a
+  coordinate bug.
+
 - **Animate off the frame clock** (`add_tick_callback`), not a 16ms timeout,
   and ease `pointer_x` toward the raw pointer: motion events arrive coalesced
   and unevenly, so following them directly stutters.
