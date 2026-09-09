@@ -11,7 +11,7 @@ gi.require_version("PangoCairo", "1.0")
 from gi.repository import (Gdk, GLib, Gtk, Pango,  # noqa: E402
                            PangoCairo)
 
-from . import x11
+from . import timing, x11
 from .appmenu import AppMenuPopup
 from .config import Config
 from .ipc import ControlServer
@@ -59,15 +59,21 @@ class Dock:
 
         # -- services
         self.appdb = AppDatabase()
+        timing.mark("  AppDatabase")
         self.windows = WindowModel(self.appdb)
+        timing.mark("  WindowModel (wnck force_update)")
         self.pulse = PulseAudio()
+        timing.mark("  PulseAudio")
         self.network = NetworkMonitor()
+        timing.mark("  NetworkMonitor")
         self.tray_host = StatusNotifierHost()
+        timing.mark("  StatusNotifierHost")
         self.tabs = TabRegistry(self.windows) if self.cfg["browser_tabs"] else None
         self.control = ControlServer({
             "menu": self.toggle_app_menu,
             "quit": Gtk.main_quit,
         })
+        timing.mark("  TabRegistry + ControlServer")
 
         # -- geometry
         zoom = float(self.cfg["zoom_factor"]) if self.cfg["zoom"] else 1.0
@@ -95,11 +101,15 @@ class Dock:
         self._pointer_inside = False
 
         self._build_window()
+        timing.mark("  window built")
         self.launchers = LauncherZone(self)
+        timing.mark("  LauncherZone")
         self.status_items = []
         self._build_status_items()
+        timing.mark("  status widgets")
         self.menu_width = self._measure_menu()
         self.update_geometry()
+        timing.mark("  geometry")
         if self.tabs is not None:
             self.tabs.connect("changed", lambda *_a: self.queue_draw_center())
 
@@ -367,6 +377,7 @@ class Dock:
         return self.headroom if self.at_bottom() else 0
 
     def _on_draw(self, _widget, cr):
+        timing.mark_once("first draw")
         self._ensure_layout()
         width = self.area.get_allocated_width()
         top = self.bar_top()
@@ -665,7 +676,9 @@ class Dock:
 
     def prewarm_app_menu(self):
         """Pay the menu's build cost at startup, not on the first Super press."""
+        timing.mark("app menu prewarm: start")
         self.app_menu().prewarm()
+        timing.mark("app menu prewarm: done")
         return GLib.SOURCE_REMOVE
 
     def toggle_app_menu(self):
@@ -783,6 +796,7 @@ class Dock:
     # ------------------------------------------------------------------
     def run(self):
         self.window.show_all()
+        timing.mark("window shown")
         # Struts and the input region need a realized X window.
         GLib.idle_add(self._post_show)
         Gtk.main()
@@ -791,6 +805,7 @@ class Dock:
         self._apply_input_region()
         self._apply_strut()
         self.invalidate_layout()
+        timing.mark("struts + input region")
         # Build the applications menu once the dock itself is up, so the
         # first Super press does not pay for it.
         GLib.timeout_add(1200, self.prewarm_app_menu)

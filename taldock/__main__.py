@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import sys
 
+from . import timing
+
 # Keys XFCE binds to a bare Super press.
 SUPER_KEYS = ("Super_L", "Super_R")
 SHORTCUT_CHANNEL = "xfce4-keyboard-shortcuts"
@@ -130,6 +132,7 @@ def main(argv=None):
     parser.add_argument("--unbind-super", action="store_true",
                         help="undo --bind-super")
     args = parser.parse_args(argv)
+    timing.mark("entry (interpreter + argparse)")
 
     if args.menu:
         from .control import send
@@ -147,6 +150,7 @@ def main(argv=None):
         return unbind_super()
     if not preflight():
         return 1
+    timing.mark("preflight (gi typelibs)")
 
     # A second dock would fight the first over struts, the tray watcher and
     # the control socket, so refuse rather than half-start.
@@ -165,8 +169,10 @@ def main(argv=None):
 
     from gi.repository import GLib, Gtk
     from .dock import Dock
+    timing.mark("taldock imports")
 
     dock = Dock(config_path=args.config)
+    timing.mark("Dock() built")
 
     def stop(*_a):
         dock.shutdown()
