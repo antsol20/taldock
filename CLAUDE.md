@@ -190,6 +190,34 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   running dock. Test tray code against a throwaway item on the bus instead
   of constructing a `Dock`.
 
+## Starting up at login
+
+The dock's own startup is ~400ms to first draw (`TALDOCK_TIMING=1` prints
+marks to stderr, which xfce4-session sends to `~/.xsession-errors`;
+`tools/login-timeline.sh` reads them back). Everything else about login
+latency is xfce4-session's sequencing, and it is worth understanding before
+touching it:
+
+- **xfce4-session starts its clients in groups of equal `Priority`, and a
+  group whose clients never register with the session manager costs ~8
+  seconds** before the next group starts. Autostart entries -- where taldock
+  used to live -- run only after the last group. On this machine that put
+  the dock 17 seconds into the session. `tools/session-slot.sh` moves it
+  into the client list instead, where it starts at +1s.
+- **The priority it gets matters more than the slot.** GTK3 dropped XSMP, so
+  taldock never registers and any group it has to itself adds 8 seconds to
+  everything after it -- including xfdesktop, so the desktop icons appear
+  late and it looks like the dock broke something. Priority 30 shares
+  `Thunar --daemon`'s group, which does not register either, so the wait is
+  one the session already paid. Measure with offsets *from xfce4-session's
+  own start*, not wall clock: two logins do not begin at the same second.
+- **A failed spawn costs nothing.** The `xfce4-panel` entry left behind in
+  the failsafe client list after the package was removed logs a warning in
+  `~/.xsession-errors` and looks like the culprit, but a group with nothing
+  running in it advances immediately.
+- The autostart entry stays installed as a fallback. Both fire; the second
+  one exits at `is_live()`, which its timing marks show ending at preflight.
+
 ## Verifying changes
 
 There is no test suite; this is a GUI that must be looked at. The workflow

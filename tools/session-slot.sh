@@ -5,13 +5,19 @@
 # Why this exists: xfce4-session starts its session clients first and only
 # reaches the autostart batch once every client has registered with the
 # session manager or timed out. On the machine this was written for that is
-# 17 seconds after the session begins -- which is 17 seconds of no dock, none
-# of it taldock's own doing. The failsafe client list also still contained
-# "xfce4-panel" long after the package was removed, so xfce4-session spawned
-# a binary that did not exist and then waited out its timeout.
+# 17 seconds after the session begins -- 17 seconds of no dock, none of it
+# taldock's own doing.
 #
-# Taking the panel's slot fixes both: the dead entry goes away, and taldock
-# starts alongside xfsettingsd instead of after everything else.
+# The catch is the priority: clients are started in groups of equal
+# priority, and a group whose clients never register costs ~8 seconds.
+# GTK3 dropped XSMP, so taldock never registers -- give it a group of its
+# own and every later group, xfdesktop included, is pushed 8 seconds back.
+# Priority 30 puts it with "Thunar --daemon", which does not register
+# either, so the wait it joins is one the session was already paying.
+#
+# (The removed "xfce4-panel" that used to sit at priority 25 cost nothing,
+# despite the warning in ~/.xsession-errors: a spawn that fails leaves the
+# group with nothing to wait for.)
 #
 #   ./tools/session-slot.sh install [--timing]
 #   ./tools/session-slot.sh restore
@@ -29,6 +35,9 @@ say()  { printf '\033[1;35m::\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*"; }
 
 prop() { xfconf-query -c "$CHANNEL" -p "$1" 2>/dev/null; }
+
+# Share the priority of a client that already stalls its group; see above.
+PRIORITY=30
 
 # The slot to take: the one running xfce4-panel, else the first free index.
 find_slot() {
@@ -74,10 +83,8 @@ install_slot() {
     else
         xfconf-query -c "$CHANNEL" -p "${base}_Command" -t string -s "$BIN"
     fi
-    # Priority orders the startup groups: after xfsettingsd (20), which owns
-    # XSettings, so the icon theme is already right when our icons load.
-    xfconf-query -c "$CHANNEL" -p "${base}_Priority" -n -t int -s 25 2>/dev/null \
-        || xfconf-query -c "$CHANNEL" -p "${base}_Priority" -t int -s 25
+    xfconf-query -c "$CHANNEL" -p "${base}_Priority" -n -t int -s "$PRIORITY" 2>/dev/null \
+        || xfconf-query -c "$CHANNEL" -p "${base}_Priority" -t int -s "$PRIORITY"
     xfconf-query -c "$CHANNEL" -p "${base}_PerScreen" -n -t bool -s false 2>/dev/null \
         || xfconf-query -c "$CHANNEL" -p "${base}_PerScreen" -t bool -s false
 
@@ -86,7 +93,7 @@ install_slot() {
         xfconf-query -c "$CHANNEL" -p "/sessions/$SESSION/Count" -t int -s "$((slot + 1))"
     fi
 
-    say "taldock now starts as session client $slot (priority 25)."
+    say "taldock now starts as session client $slot (priority $PRIORITY)."
     xfconf-query -c "$CHANNEL" -lv | grep "^/sessions/$SESSION/Client${slot}"
     echo
     say "Log out and back in to test. Undo with: $0 restore"
@@ -120,5 +127,5 @@ restore_slot() {
 case "${1:-}" in
     install) shift; install_slot "${1:-}" ;;
     restore) restore_slot ;;
-    *) sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    *) sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
