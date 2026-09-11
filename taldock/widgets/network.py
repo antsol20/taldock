@@ -16,6 +16,13 @@ class NetworkItem(PanelItem):
         self._networks_box = None
         self._networks_header = None
         self._pending_scans = set()
+        # Which row, if any, has an inline form open under it:
+        # (ssid, "password" | "forget" | "connecting"). While one is open the
+        # background rescan must not rebuild the list out from under it.
+        self._row_state = None
+        self._error = ""
+        self._entry = None
+        self._saved = set()
         self.net = self.dock.network
         self.net.connect("changed", lambda *_a: self.redraw())
 
@@ -173,15 +180,21 @@ class NetworkItem(PanelItem):
         if source in self._pending_scans:
             self._pending_scans.discard(source)
             GLib.source_remove(source)
+        self._row_state = None
+        self._error = ""
+        self._entry = None
         # These live on the panel item, which outlives the popup, so they
         # would otherwise pin the whole popup widget tree in memory.
         self._networks_box = None
         self._networks_header = None
 
     def _fill_networks(self, pop):
+        self._entry = None
         for child in self._networks_box.get_children():
             self._networks_box.remove(child)
         aps = self.net.access_points() if self.net.wifi_enabled else []
+        # One walk of NM's saved profiles for the whole list, not one per row.
+        self._saved = self.net.saved_ssids() if aps else set()
         if not aps:
             self._networks_box.pack_start(
                 label("Scanning…" if self.net.wifi_enabled else "Wi-Fi is off",
@@ -189,14 +202,23 @@ class NetworkItem(PanelItem):
         for ap in aps[:14]:
             self._networks_box.pack_start(self._ap_row(ap, pop), False, False, 0)
         self._networks_box.show_all()
+        if self._entry is not None:
+            # Safe here, unlike in the applications menu: this popup holds the
+            # seat grab and has no other entry to steal the keyboard from.
+            self._entry.grab_focus()
 
     def _rescan(self, pop):
         self._pending_scans.discard(GLib.main_current_source().get_id())
-        if pop.get_realized():
+        # Rebuilding while a password is half-typed would throw it away.
+        if pop.get_realized() and self._row_state is None:
             self._fill_networks(pop)
         return GLib.SOURCE_REMOVE
 
     def _ap_row(self, ap, pop):
+        """One network: the clickable row, plus any form open beneath it."""
+        saved = ap.ssid in self._saved
+        holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+
         btn = Gtk.Button()
         btn.set_relief(Gtk.ReliefStyle.NONE)
         btn.get_style_context().add_class("td-row")
@@ -208,6 +230,8 @@ class NetworkItem(PanelItem):
         sub = f"{ap.band} · {ap.strength}%"
         if ap.active:
             sub = "Connected · " + sub
+        elif saved:
+            sub = "Saved · " + sub
         text.pack_start(label(sub, "td-dim"), False, False, 0)
         inner.pack_start(text, True, True, 0)
         if ap.secure:
@@ -215,15 +239,149 @@ class NetworkItem(PanelItem):
                 "channel-secure-symbolic", Gtk.IconSize.MENU), False, False, 0)
         btn.add(inner)
         btn.connect("clicked", lambda _b: self._activate(ap, pop))
-        return btn
 
+        line = Gtk.Box(spacing=2)
+        line.pack_start(btn, True, True, 0)
+        if saved:
+            forget = Gtk.Button.new_from_icon_name("user-trash-symbolic",
+                                                   Gtk.IconSize.MENU)
+            forget.set_relief(Gtk.ReliefStyle.NONE)
+            forget.set_tooltip_text("Forget this network")
+            forget.connect("clicked",
+                           lambda _b: self._open_form(ap.ssid, "forget", pop))
+            line.pack_end(forget, False, False, 0)
+        holder.pack_start(line, False, False, 0)
+
+        state = self._row_state
+        if state and state[0] == ap.ssid:
+            mode = state[1]
+            if mode == "password":
+                holder.pack_start(self._password_form(ap, pop), False, False, 0)
+            elif mode == "forget":
+                holder.pack_start(self._forget_form(ap, pop), False, False, 0)
+            elif mode == "connecting":
+                holder.pack_start(self._busy_form(), False, False, 0)
+        return holder
+
+    # -- inline forms ------------------------------------------------------
+    def _open_form(self, ssid, mode, pop):
+        self._row_state = (ssid, mode)
+        self._error = ""
+        self._fill_networks(pop)
+
+    def _close_form(self, pop):
+        self._row_state = None
+        self._error = ""
+        self._fill_networks(pop)
+
+    def _password_form(self, ap, pop):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_margin_start(8)
+        box.set_margin_bottom(4)
+
+        entry = Gtk.Entry()
+        entry.set_visibility(False)
+        entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+        entry.set_placeholder_text("Password")
+        entry.get_style_context().add_class("td-search")
+        entry.set_icon_from_icon_name(Gtk.EntryIconPosition.SECONDARY,
+                                      "view-reveal-symbolic")
+        entry.connect("icon-press", self._toggle_reveal)
+        entry.connect("activate", lambda _e: self._start_connect(ap, entry, pop))
+        self._entry = entry
+
+        row = Gtk.Box(spacing=6)
+        row.pack_start(entry, True, True, 0)
+        go = Gtk.Button(label="Connect")
+        go.get_style_context().add_class("td-btn")
+        go.connect("clicked", lambda _b: self._start_connect(ap, entry, pop))
+        row.pack_end(go, False, False, 0)
+        box.pack_start(row, False, False, 0)
+        if self._error:
+            box.pack_start(label(self._error, "td-dim"), False, False, 0)
+        return box
+
+    def _toggle_reveal(self, entry, _pos, _event):
+        shown = not entry.get_visibility()
+        entry.set_visibility(shown)
+        entry.set_icon_from_icon_name(
+            Gtk.EntryIconPosition.SECONDARY,
+            "view-conceal-symbolic" if shown else "view-reveal-symbolic")
+
+    def _forget_form(self, ap, pop):
+        box = Gtk.Box(spacing=6)
+        box.set_margin_start(8)
+        box.set_margin_bottom(4)
+        # Not "Forget <ssid>?": the popup is 310px wide, and with two
+        # buttons beside it the name ellipsized away to nothing. The row
+        # immediately above already says which network this is.
+        box.pack_start(label("Forget this network?", "td-dim"), True, True, 0)
+        cancel = Gtk.Button(label="Cancel")
+        cancel.get_style_context().add_class("td-btn")
+        cancel.connect("clicked", lambda _b: self._close_form(pop))
+        go = Gtk.Button(label="Forget")
+        go.get_style_context().add_class("td-btn")
+        go.connect("clicked", lambda _b: self._do_forget(ap, pop))
+        box.pack_end(go, False, False, 0)
+        box.pack_end(cancel, False, False, 0)
+        return box
+
+    def _busy_form(self):
+        box = Gtk.Box(spacing=8)
+        box.set_margin_start(8)
+        box.set_margin_bottom(4)
+        spinner = Gtk.Spinner()
+        spinner.start()
+        box.pack_start(spinner, False, False, 0)
+        box.pack_start(label("Connecting\u2026", "td-dim"), True, True, 0)
+        return box
+
+    def _do_forget(self, ap, pop):
+        self.net.forget(ap.ssid)
+        self._close_form(pop)
+        self.redraw()
+
+    # -- connecting --------------------------------------------------------
     def _activate(self, ap, pop):
-        pop.dismiss()
         if ap.active:
             return
-        if not self.net.activate(ap):
-            # No saved profile: hand off to the desktop's secret agent.
+        if ap.ssid in self._saved:
+            # A profile already holds the passphrase; nothing to ask for.
+            pop.dismiss()
+            self.net.activate(ap)
+            return
+        if not ap.joinable:
+            # 802.1X, WEP, OWE: more settings than a passphrase box can ask
+            # for, so these stay the desktop's job.
+            pop.dismiss()
             self._open_editor()
+            return
+        if ap.security == "none":
+            self._start_connect(ap, None, pop)
+            return
+        self._open_form(ap.ssid, "password", pop)
+
+    def _start_connect(self, ap, entry, pop):
+        password = entry.get_text() if entry is not None else ""
+        if entry is not None and not password:
+            return
+        self._row_state = (ap.ssid, "connecting")
+        self._error = ""
+        self._fill_networks(pop)
+
+        def done(ok, message):
+            if not pop.get_realized():
+                return
+            if ok:
+                pop.dismiss()
+                return
+            # Back to the password box with the error under it. The profile
+            # NM made has already been deleted, so a retry starts clean.
+            self._row_state = (ap.ssid, "password")
+            self._error = message
+            self._fill_networks(pop)
+
+        self.net.connect_new(ap, password, done)
 
     def _open_editor(self):
         if launch_first(("nm-connection-editor",)):

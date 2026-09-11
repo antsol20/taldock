@@ -37,7 +37,8 @@ panel, in one process.
 
 **Status area (right)**
 - CPU and memory gauges, with a detail popup listing the heaviest processes
-- Wi-Fi via NetworkManager: signal, SSID, network list, connect to saved networks
+- Wi-Fi via NetworkManager: signal, SSID, network list, join a new network
+  with its password, reconnect to saved ones, forget a network
 - Battery via UPower: charge, charging state, time remaining
 - Volume: scroll to adjust, click for a mixer with output switching and mic mute
 - System tray (StatusNotifier/Ayatana), with full D-Bus menu support
@@ -226,14 +227,18 @@ at. `CLAUDE.md` describes the approach that works, including why
 
 **The Wi-Fi icon appears twice.** taldock has its own Wi-Fi widget, so
 `nm-applet`'s tray icon is redundant. Mask it per-user if you do not want
-both — but note nm-applet is also NetworkManager's secret agent, so without
-it a *new* password-protected network has to be added through
-`nm-connection-editor` rather than prompting:
+both:
 
 ```sh
 printf '[Desktop Entry]\nType=Application\nName=Network\nExec=nm-applet\nHidden=true\n' \
     > ~/.config/autostart/nm-applet.desktop
 ```
+
+Joining networks does not depend on nm-applet: taldock puts the passphrase
+into the connection profile itself, and NetworkManager stores it, so no
+secret agent has to be running. Enterprise (802.1X), WEP and hidden networks
+ask for more than a passphrase box can, and still open
+`nm-connection-editor`.
 
 **The system tray stays empty.** Something else has claimed the
 StatusNotifier name. Check who owns it:

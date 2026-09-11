@@ -10,6 +10,15 @@ DEV_ETHERNET, DEV_WIFI = 1, 2
 NM_DEVICE_STATE_ACTIVATED = 100
 # NM_802_11_AP_SEC flags
 SEC_NONE = 0x0
+SEC_KEY_MGMT_PSK = 0x100
+SEC_KEY_MGMT_802_1X = 0x200
+SEC_KEY_MGMT_SAE = 0x400
+# NM_ACTIVE_CONNECTION_STATE
+ACTIVE_ACTIVATED = 2
+ACTIVE_DEACTIVATED = 4
+# How long to wait for an association before calling it a failure. Long
+# enough for a slow DHCP lease, short enough not to spin for ever.
+CONNECT_TIMEOUT_S = 30
 
 
 def _proxy(path, iface):
@@ -36,19 +45,46 @@ def _ssid_text(raw):
 
 
 class AccessPoint:
-    __slots__ = ("path", "ssid", "strength", "secure", "freq", "active")
+    __slots__ = ("path", "ssid", "strength", "security", "freq", "active")
 
-    def __init__(self, path, ssid, strength, secure, freq, active=False):
+    def __init__(self, path, ssid, strength, security, freq, active=False):
         self.path = path
         self.ssid = ssid
         self.strength = strength
-        self.secure = secure
+        # "none" | "psk" | "sae" | "other". Only the first three can be
+        # joined from the dock; "other" (802.1X, WEP, OWE) needs settings we
+        # do not ask for, and goes to nm-connection-editor.
+        self.security = security
         self.freq = freq
         self.active = active
 
     @property
+    def secure(self):
+        return self.security != "none"
+
+    @property
+    def joinable(self):
+        return self.security in ("none", "psk", "sae")
+
+    @property
     def band(self):
         return "5 GHz" if self.freq > 4000 else "2.4 GHz"
+
+
+def _security_of(wpa_flags, rsn_flags):
+    """Classify an AP from its WPA/RSN key-management bits."""
+    both = wpa_flags | rsn_flags
+    # A WPA2/WPA3 transitional network advertises both; SAE is the one we
+    # must ask NM for, because joining it as wpa-psk fails on a WPA3-only AP.
+    if rsn_flags & SEC_KEY_MGMT_SAE:
+        return "sae"
+    if both & SEC_KEY_MGMT_802_1X:
+        return "other"
+    if both & SEC_KEY_MGMT_PSK:
+        return "psk"
+    if both:
+        return "other"      # WEP, OWE: encrypted, but not by a passphrase
+    return "none"
 
 
 class NetworkMonitor(GObject.Object):
@@ -177,9 +213,9 @@ class NetworkMonitor(GObject.Object):
             if not ssid:
                 continue
             strength = int(_prop(ap, "Strength", 0) or 0)
-            secure = bool((_prop(ap, "WpaFlags", 0) or 0)
-                          | (_prop(ap, "RsnFlags", 0) or 0))
-            entry = AccessPoint(path, ssid, strength, secure,
+            security = _security_of(_prop(ap, "WpaFlags", 0) or 0,
+                                    _prop(ap, "RsnFlags", 0) or 0)
+            entry = AccessPoint(path, ssid, strength, security,
                                 int(_prop(ap, "Frequency", 0) or 0),
                                 path == active)
             prev = best.get(ssid)
@@ -213,17 +249,22 @@ class NetworkMonitor(GObject.Object):
         except GLib.Error:
             pass
 
-    # -- connecting --------------------------------------------------------
-    def saved_connection_for(self, ssid):
-        """Object path of a saved profile matching `ssid`, if any."""
+    # -- saved profiles ----------------------------------------------------
+    def _saved_wifi(self):
+        """Yield (connection path, ssid) for every saved wireless profile.
+
+        Walking Settings costs two round trips per connection, so callers
+        that want more than one answer should walk once rather than call
+        saved_connection_for() per network.
+        """
         settings = _proxy(NM_PATH + "/Settings", NM + ".Settings")
         if settings is None:
-            return None
+            return
         try:
             paths = settings.call_sync("ListConnections", None,
                                        Gio.DBusCallFlags.NONE, 2000, None)[0]
         except GLib.Error:
-            return None
+            return
         for path in paths:
             conn = _proxy(path, NM + ".Settings.Connection")
             if conn is None:
@@ -233,17 +274,39 @@ class NetworkMonitor(GObject.Object):
                                      Gio.DBusCallFlags.NONE, 2000, None)[0]
             except GLib.Error:
                 continue
-            wireless = cfg.get("802-11-wireless") or {}
-            if _ssid_text(wireless.get("ssid", b"")) == ssid:
+            ssid = _ssid_text((cfg.get("802-11-wireless") or {}).get("ssid", b""))
+            if ssid:
+                yield path, ssid
+
+    def saved_connection_for(self, ssid):
+        """Object path of a saved profile matching `ssid`, if any."""
+        for path, saved in self._saved_wifi():
+            if saved == ssid:
                 return path
         return None
 
-    def activate(self, ap):
-        """Bring up a saved profile for `ap`. Returns True if we tried.
+    def saved_ssids(self):
+        """Every SSID we hold a profile for, in one pass."""
+        return {ssid for _path, ssid in self._saved_wifi()}
 
-        New networks need a secret agent to prompt for the passphrase, which
-        is the desktop's job, so those are handed to nm-connection-editor.
-        """
+    def forget(self, ssid):
+        """Delete the saved profile for `ssid`. Returns True if one went."""
+        path = self.saved_connection_for(ssid)
+        if path is None:
+            return False
+        conn = _proxy(path, NM + ".Settings.Connection")
+        if conn is None:
+            return False
+        try:
+            conn.call_sync("Delete", None, Gio.DBusCallFlags.NONE, 2000, None)
+        except GLib.Error:
+            return False
+        self.refresh()
+        return True
+
+    # -- connecting --------------------------------------------------------
+    def activate(self, ap):
+        """Bring up an existing saved profile for `ap`. True if we tried."""
         conn = self.saved_connection_for(ap.ssid)
         if conn is None or not self._wifi_dev:
             return False
@@ -255,3 +318,131 @@ class NetworkMonitor(GObject.Object):
             return True
         except GLib.Error:
             return False
+
+    def connect_new(self, ap, password, on_done):
+        """Create a profile for `ap` and bring it up. Asynchronous.
+
+        No secret agent is involved: the passphrase goes into the profile
+        with default secret flags, so NetworkManager stores it itself and
+        never has to ask anyone for it again -- which is exactly what
+        `nmcli device wifi connect <ssid> password <pw>` does.
+
+        `on_done(ok, message)` is called exactly once, and not before the
+        network is actually up or actually failed.
+        """
+        if self.manager is None or not self._wifi_dev:
+            on_done(False, "No Wi-Fi device")
+            return
+        cfg = {
+            "connection": {
+                # NM generates the uuid; supplying one only risks a clash.
+                "id": GLib.Variant("s", ap.ssid),
+                "type": GLib.Variant("s", "802-11-wireless"),
+            },
+            "802-11-wireless": {
+                "ssid": GLib.Variant("ay", ap.ssid.encode("utf-8")),
+                "mode": GLib.Variant("s", "infrastructure"),
+            },
+        }
+        if ap.security in ("psk", "sae"):
+            cfg["802-11-wireless-security"] = {
+                "key-mgmt": GLib.Variant(
+                    "s", "sae" if ap.security == "sae" else "wpa-psk"),
+                "psk": GLib.Variant("s", password),
+            }
+
+        attempt = _ConnectAttempt(self, ap.ssid, on_done)
+
+        def replied(proxy, result, _data):
+            try:
+                conn_path, active_path = proxy.call_finish(result).unpack()
+            except GLib.Error as exc:
+                attempt.finish(False, exc.message.rsplit(": ", 1)[-1])
+                return
+            attempt.watch(conn_path, active_path)
+
+        self.manager.call(
+            "AddAndActivateConnection",
+            GLib.Variant("(a{sa{sv}}oo)", (cfg, self._wifi_dev[0], ap.path)),
+            Gio.DBusCallFlags.NONE, CONNECT_TIMEOUT_S * 1000, None,
+            replied, None)
+
+
+class _ConnectAttempt:
+    """Watches one AddAndActivateConnection through to a verdict.
+
+    NM answers the method call as soon as it has accepted the request, not
+    when the network is up, so the verdict has to come from the
+    ActiveConnection's State afterwards.
+
+    A failed attempt must take its half-made profile with it. The passphrase
+    is stored by NM with no secret agent anywhere, so a mistyped one is saved
+    silently -- and every later attempt would then find that profile through
+    saved_connection_for(), reuse the wrong passphrase and fail the same way,
+    with nothing ever asking again. The network would simply stop being
+    joinable from the dock.
+    """
+
+    def __init__(self, monitor, ssid, on_done):
+        self.monitor = monitor
+        self.ssid = ssid
+        self.on_done = on_done
+        self.conn_path = None
+        self._proxy = None
+        self._handler = 0
+        self._timeout = GLib.timeout_add_seconds(
+            CONNECT_TIMEOUT_S, self._on_timeout)
+
+    def watch(self, conn_path, active_path):
+        self.conn_path = conn_path
+        if self.on_done is None:
+            return                      # already timed out
+        self._proxy = _proxy(active_path, NM + ".Connection.Active")
+        if self._proxy is None:
+            self.finish(False, "Could not follow the connection")
+            return
+        self._handler = self._proxy.connect("g-properties-changed",
+                                            self._on_changed)
+        self._check()
+
+    def _on_changed(self, *_a):
+        self._check()
+
+    def _check(self):
+        state = _prop(self._proxy, "State", 0) or 0
+        if state == ACTIVE_ACTIVATED:
+            self.finish(True, "")
+        elif state == ACTIVE_DEACTIVATED:
+            # NM does not tell us *why* on the active connection, and with no
+            # secret agent a bad passphrase is much the likeliest reason.
+            self.finish(False, "Could not connect — wrong password?")
+
+    def _on_timeout(self):
+        self._timeout = 0
+        self.finish(False, "Timed out")
+        return GLib.SOURCE_REMOVE
+
+    def finish(self, ok, message):
+        if self.on_done is None:
+            return                      # verdict already delivered
+        done, self.on_done = self.on_done, None
+        if self._timeout:
+            GLib.source_remove(self._timeout)
+            self._timeout = 0
+        if self._proxy is not None and self._handler:
+            self._proxy.disconnect(self._handler)
+        self._proxy = None
+        if not ok and self.conn_path:
+            self._delete_profile()
+        if ok:
+            self.monitor.refresh()
+        done(ok, message)
+
+    def _delete_profile(self):
+        conn = _proxy(self.conn_path, NM + ".Settings.Connection")
+        if conn is None:
+            return
+        try:
+            conn.call_sync("Delete", None, Gio.DBusCallFlags.NONE, 2000, None)
+        except GLib.Error:
+            pass

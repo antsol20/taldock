@@ -141,6 +141,25 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   dead, and plenty of items (nm-applet) legitimately implement no
   `Activate`.
 
+- **Joining Wi-Fi needs no secret agent, and a failed join must clean up
+  after itself.** nm-applet is NetworkManager's secret agent -- it is what
+  used to prompt for passphrases -- and this machine masks it, because
+  taldock draws its own Wi-Fi icon. We do not reimplement it. Saved profiles
+  here report `psk-flags: 0`, meaning NM stores the passphrase itself, so
+  `connect_new()` passes the passphrase straight into
+  `AddAndActivateConnection` and NM saves it; that is what
+  `nmcli device wifi connect <ssid> password <pw>` does too. The consequence
+  to respect: a *wrong* passphrase is saved just as silently. Every later
+  attempt would then find that profile through `saved_connection_for()`,
+  reuse the bad passphrase and fail identically, with nothing left to ask
+  again -- the network becomes permanently unjoinable from the dock. So
+  `_ConnectAttempt.finish()` deletes the profile it created on any failure.
+  Note also that NM answers `AddAndActivateConnection` when it *accepts* the
+  request, not when the network is up: the verdict comes from watching the
+  ActiveConnection's `State`, with a timeout, and never from the call
+  returning. WPA2/WPA3 transitional APs advertise both PSK and SAE and must
+  be joined as `sae`, or the join fails on a WPA3-only AP.
+
 - **The CPU/memory colour ramp is configurable.** `Theme.load_ramp` is green
   below `load_warn_at`, blends to amber by `load_crit_at`, then to red at
   100%; the gauge glow starts at `load_crit_at` so colour and halo cannot
