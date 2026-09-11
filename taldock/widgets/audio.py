@@ -297,6 +297,11 @@ class AudioItem(PanelItem):
 
         pop.content.pack_start(separator(), False, False, 4)
         mic_row = Gtk.Box(spacing=8)
+        # A Gtk.Switch is half again as tall as the label beside it, so at the
+        # content box's 6px spacing this row sat hard against the separator
+        # above it and the button below. It needs its own breathing room.
+        mic_row.set_margin_top(5)
+        mic_row.set_margin_bottom(5)
         mic_row.pack_start(label("Microphone"), True, True, 0)
         mic = Gtk.Switch()
         # The switch reads as "microphone is live", so it is the inverse of mute.
@@ -312,7 +317,7 @@ class AudioItem(PanelItem):
         settings = Gtk.Button(label="Sound settings")
         settings.get_style_context().add_class("td-btn")
         settings.connect("clicked", lambda _b: (pop.dismiss(), self._open_mixer()))
-        pop.content.pack_start(settings, False, False, 0)
+        pop.content.pack_start(settings, False, False, 3)
 
         pop.open_at(self.dock.item_center_root(self))
         return pop
