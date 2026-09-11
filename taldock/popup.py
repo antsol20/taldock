@@ -13,6 +13,22 @@ RADIUS = 14
 GAP = 9          # distance between the dock bar and the popup
 
 
+# PyGObject does not expose the XF86 keysyms -- there is no
+# Gdk.KEY_XF86AudioRaiseVolume, only an AttributeError at the moment a key is
+# pressed -- so the values from X11/XF86keysym.h are spelled out here.
+KEY_XF86_AUDIO_LOWER = 0x1008FF11
+KEY_XF86_AUDIO_MUTE = 0x1008FF12
+KEY_XF86_AUDIO_RAISE = 0x1008FF13
+KEY_XF86_AUDIO_MIC_MUTE = 0x1008FFB2
+
+MEDIA_KEYS = {
+    KEY_XF86_AUDIO_RAISE: lambda dock: dock.adjust_volume(1),
+    KEY_XF86_AUDIO_LOWER: lambda dock: dock.adjust_volume(-1),
+    KEY_XF86_AUDIO_MUTE: lambda dock: dock.toggle_mute(),
+    KEY_XF86_AUDIO_MIC_MUTE: lambda dock: dock.toggle_mic_mute(),
+}
+
+
 class Popup(Gtk.Window):
     """An override-redirect window that dismisses itself on outside input.
 
@@ -156,11 +172,27 @@ class Popup(Gtk.Window):
         return GLib.SOURCE_CONTINUE
 
     # -- input -------------------------------------------------------------
+    def _media_key(self, event):
+        """Act on a volume key. True if this was one.
+
+        While any popup is open it holds a seat grab, so xfsettingsd never
+        sees these and the xfconf shortcut that normally runs
+        `taldock --volume-up` cannot fire -- the same reason Super-to-close
+        lives in AppMenuPopup rather than in its shortcut. Without this a
+        popup silently swallows the volume keys, which is most obvious on
+        the mixer itself, where the slider is right there and does nothing.
+        """
+        action = MEDIA_KEYS.get(event.keyval)
+        if action is None:
+            return False
+        action(self.dock)
+        return True
+
     def _on_key(self, _w, event):
         if event.keyval == Gdk.KEY_Escape:
             self.dismiss()
             return True
-        return False
+        return self._media_key(event)
 
     def _on_button(self, _w, event):
         """Dismiss on a click outside us. Root coordinates only.

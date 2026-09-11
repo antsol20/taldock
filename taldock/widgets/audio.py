@@ -190,12 +190,17 @@ class AudioItem(PanelItem):
         scale.connect("value-changed", on_scale)
         mute_btn.connect("toggled", on_mute)
 
+        # Widgets built further down that also have to follow the server.
+        extra_sync = []
+
         def sync(*_a):
             # Reflect external changes (media keys, other apps) live.
             guard["busy"] = True
             scale.set_value(self.pulse.volume * 100)
             mute_btn.set_active(self.pulse.muted)
             pct.set_text(f"{self.pulse.volume*100:.0f}%")
+            for update in extra_sync:
+                update()
             guard["busy"] = False
 
         handler = self.pulse.connect("changed", sync)
@@ -226,7 +231,10 @@ class AudioItem(PanelItem):
         # The switch reads as "microphone is live", so it is the inverse of mute.
         mic.set_active(not self.pulse.mic_mute)
         mic.connect("notify::active",
-                    lambda sw, _p: self.pulse.set_mic_mute(not sw.get_active()))
+                    lambda sw, _p: None if guard["busy"]
+                    else self.pulse.set_mic_mute(not sw.get_active()))
+        # So the mic-mute key moves the switch while the mixer is open.
+        extra_sync.append(lambda: mic.set_active(not self.pulse.mic_mute))
         mic_row.pack_end(mic, False, False, 0)
         pop.content.pack_start(mic_row, False, False, 0)
 

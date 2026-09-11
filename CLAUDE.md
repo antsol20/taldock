@@ -77,6 +77,29 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   always worked, which makes this look like a menu-button bug rather than a
   coordinate bug.
 
+- **PyGObject does not expose the XF86 keysyms.** There is no
+  `Gdk.KEY_XF86AudioRaiseVolume` -- the lookup raises `AttributeError` at the
+  moment the key is pressed, inside a signal handler, so it surfaces as a
+  traceback in the dock's log rather than as an import error, and the key
+  simply appears to do nothing. `popup.py` spells the four values out from
+  `X11/XF86keysym.h`.
+
+- **A popup with a seat grab swallows the media keys.** While one is open
+  xfsettingsd never sees them, so the xfconf shortcut that runs
+  `taldock --volume-up` cannot fire -- the same mechanism that forces
+  Super-to-close to be handled inside the applications menu. `Popup._on_key`
+  routes them to the dock, which is why the volume keys work while the mixer
+  itself is open. Any popup that overrides `_on_key` has to call
+  `self._media_key(event)` on its way out, as `AppMenuPopup` does.
+
+- **Do not connect `key-press-event` in a Popup subclass.** `Popup.__init__`
+  already connects `self._on_key`, and Python resolves that to the
+  subclass's override -- so `AppMenuPopup` connecting it again ran the
+  handler twice for every keypress. It was invisible only because the
+  handler returns `True` for everything it acts on, which stops the second
+  invocation; the keys it ignores ran it twice for nothing. A media key
+  reached that way would have stepped the volume twice.
+
 - **Animate off the frame clock** (`add_tick_callback`), not a 16ms timeout,
   and ease `pointer_x` toward the raw pointer: motion events arrive coalesced
   and unevenly, so following them directly stutters.

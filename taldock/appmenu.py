@@ -123,7 +123,9 @@ class AppMenuPopup(Popup):
 
         self._build_header()
         self._build_body()
-        self.connect("key-press-event", self._on_key)
+        # No connect() for key-press-event here: Popup.__init__ already
+        # connected self._on_key, which resolves to the override below.
+        # Connecting it again ran the handler twice for every keypress.
         self.populate()
 
     # -- sizing ------------------------------------------------------------
@@ -454,6 +456,8 @@ class AppMenuPopup(Popup):
         if key == Gdk.KEY_Tab:
             self._set_pane("apps" if self.pane == "categories"
                            else "categories")
+            return True
+        if self._media_key(event):
             return True
         # Everything else -- Backspace, Delete, Home/End, printable
         # characters, and Left/Right while there is still text to move
