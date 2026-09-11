@@ -313,6 +313,11 @@ that works:
   so hover and magnification collapse before the frame is taken.
 - Both used to be rewritten into the scratchpad each session, which is wiped
   between them; they live in `tools/` so they stop being rewritten.
+- **Capture the applications menu from about y=460.** It is roughly 505px
+  tall and opens upward from the bar, so a capture starting lower silently
+  crops the top of the result list -- including the selected first row. That
+  cost a false bug report ("typing a search selects nothing until you press
+  Down"): the highlight was there, just above the crop.
 - The screen blanks while unattended; `xfce4-screensaver-command --deactivate`
   brings it back (it blanks rather than locks on this machine).
 - `pkill -f taldock` from a shell **kills the shell too**, because `-f`
