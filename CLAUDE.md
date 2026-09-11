@@ -198,7 +198,7 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
 - **The live-microphone dot is a separate mark, on purpose.** Output mute
   and microphone state are independent -- the speakers can be muted while
   the microphone is open -- so one glyph colour cannot say both. The speaker
-  keeps saying *output*, and `_mic_pip()` adds a red dot for the input. It
+  keeps saying *output*, and `_mic_pip()` adds a green dot for the input. It
   is placed clear of the speaker's arcs, which reach `cy±6.2s` at their
   widest, and of the mute cross, which stops at `cy-3.2s`; the ring of bar
   colour behind it is what keeps it legible where the two nearly touch.

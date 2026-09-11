@@ -120,7 +120,7 @@ class AudioItem(PanelItem):
         rgba(cr, self.theme["bg"], 1.0)
         cr.arc(x, y, (MIC_PIP_R + 1.1) * s, 0, math.tau)
         cr.fill()
-        rgba(cr, self.theme["crit"])
+        rgba(cr, self.theme["ok"])
         cr.arc(x, y, MIC_PIP_R * s, 0, math.tau)
         cr.fill()
 
