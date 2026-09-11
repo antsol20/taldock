@@ -254,8 +254,14 @@ class PulseAudio(GObject.Object):
     def _on_source(self, _ctx, info_p, eol, _ud):
         if eol or not info_p:
             return
+        was = (self.mic_mute, self.mic_index)
         self.mic_mute = bool(info_p.contents.mute)
         self.mic_index = int(info_p.contents.index)
+        if (self.mic_mute, self.mic_index) != was:
+            # Without this the bar only repainted on a mic change by luck,
+            # when the sink list that follows a refresh happened to emit
+            # first -- and then with the old mic state still in hand.
+            self.emit("changed")
 
     # -- api ---------------------------------------------------------------
     def refresh(self):
@@ -274,6 +280,17 @@ class PulseAudio(GObject.Object):
     @property
     def muted(self):
         return self.sink.mute if self.sink else True
+
+    @property
+    def mic_live(self):
+        """True when an input exists and is not muted.
+
+        `mic_mute` alone is not enough: it starts False, so a machine with
+        no input at all would claim a live microphone until the first
+        source arrives -- or for ever, if none does.
+        """
+        return (self.available and self.mic_index != PA_INVALID_INDEX
+                and not self.mic_mute)
 
     def set_volume(self, value):
         if not (self.available and self.sink):

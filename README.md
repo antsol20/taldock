@@ -40,7 +40,8 @@ panel, in one process.
 - Wi-Fi via NetworkManager: signal, SSID, network list, join a new network
   with its password, reconnect to saved ones, forget a network
 - Battery via UPower: charge, charging state, time remaining
-- Volume: scroll to adjust, click for a mixer with output switching and mic mute
+- Volume: scroll to adjust, click for a mixer with output switching and mic
+  mute; a red dot on the icon whenever the microphone is open
 - System tray (StatusNotifier/Ayatana), with full D-Bus menu support
 - Clock with a calendar popup
 

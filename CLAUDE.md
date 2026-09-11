@@ -195,6 +195,20 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   sound", so it should not recede exactly when it is being looked for. An
   unavailable sound server still dims, because that one really is disabled.
 
+- **The live-microphone dot is a separate mark, on purpose.** Output mute
+  and microphone state are independent -- the speakers can be muted while
+  the microphone is open -- so one glyph colour cannot say both. The speaker
+  keeps saying *output*, and `_mic_pip()` adds a red dot for the input. It
+  is placed clear of the speaker's arcs, which reach `cy±6.2s` at their
+  widest, and of the mute cross, which stops at `cy-3.2s`; the ring of bar
+  colour behind it is what keeps it legible where the two nearly touch.
+  `pulse.mic_live` deliberately checks `mic_index` as well as `mic_mute`,
+  because `mic_mute` starts False -- a machine with no input at all would
+  otherwise claim a live microphone for ever. And note `_on_source` now
+  emits `changed`: it did not, so the bar repainted on a microphone change
+  only by luck, when the sink list that follows a refresh happened to emit
+  first, and then with the old state still in hand.
+
 - **The CPU/memory colour ramp is configurable.** `Theme.load_ramp` is green
   below `load_warn_at`, blends to amber by `load_crit_at`, then to red at
   100%; the gauge glow starts at `load_crit_at` so colour and halo cannot

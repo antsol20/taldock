@@ -16,6 +16,7 @@ VOLUME_STEP = 0.05
 FINE_STEP = 0.01    # Shift-scroll
 ICON_UNMUTED = "audio-volume-high-symbolic"
 ICON_MUTED = "audio-volume-muted-symbolic"
+MIC_PIP_R = 2.3     # "microphone is open" dot, top-right of the speaker
 
 
 class AudioItem(PanelItem):
@@ -80,7 +81,10 @@ class AudioItem(PanelItem):
             colour = self.theme["fg"]
         showing_bar = now() < self._flash_until
         cy = h / 2 - (2.5 if showing_bar else 0)
-        self._speaker(cr, w / 2, cy, ICON / 17.0, level, muted, colour)
+        scale = ICON / 17.0
+        self._speaker(cr, w / 2, cy, scale, level, muted, colour)
+        if self.pulse.mic_live:
+            self._mic_pip(cr, w / 2, cy, scale)
 
         if showing_bar:
             # Fades out rather than vanishing, so the change reads as one gesture.
@@ -101,12 +105,35 @@ class AudioItem(PanelItem):
             rounded_rect(cr, 6, by, max(3, bw * min(1.0, level)), 3, 1.5)
             cr.fill()
 
+    def _mic_pip(self, cr, cx, cy, s):
+        """A dot saying the microphone is open.
+
+        It is a separate mark rather than a tint on the speaker because the
+        two states are independent: the output can be muted while the
+        microphone is live, and a single colour cannot say both. It sits
+        clear of the speaker's arcs, which reach cy±6.2s at their widest,
+        and of the mute cross, which stops at cy-3.2s.
+        """
+        x, y = cx + 8.8 * s, cy - 8.6 * s
+        # A ring of the bar's own colour keeps the dot legible where it
+        # would otherwise touch the topmost arc.
+        rgba(cr, self.theme["bg"], 1.0)
+        cr.arc(x, y, (MIC_PIP_R + 1.1) * s, 0, math.tau)
+        cr.fill()
+        rgba(cr, self.theme["crit"])
+        cr.arc(x, y, MIC_PIP_R * s, 0, math.tau)
+        cr.fill()
+
     def tooltip(self):
         if not self.pulse.available:
             return "No sound server"
         if self.pulse.muted:
-            return "Muted"
-        return f"Volume {self.pulse.volume*100:.0f}%"
+            text = "Muted"
+        else:
+            text = f"Volume {self.pulse.volume*100:.0f}%"
+        if self.pulse.mic_live:
+            text += "   ·   Microphone live"
+        return text
 
     # -- input -------------------------------------------------------------
     def _flash(self):
