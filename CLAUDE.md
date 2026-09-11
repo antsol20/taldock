@@ -183,6 +183,18 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   returning. WPA2/WPA3 transitional APs advertise both PSK and SAE and must
   be joined as `sae`, or the join fails on a WPA3-only AP.
 
+- **A mute displays as zero, in both places, and is not stored anywhere.**
+  The mixer's percentage and slider, and the level bar that flashes under
+  the tray icon, all show 0 while muted and the previous level again as soon
+  as it is lifted. Nothing remembers that level: PulseAudio keeps it behind
+  the mute, so the display is just `0.0 if muted else pulse.volume` in both
+  `AudioItem.draw()` and the popup's `shown_volume()`. Do not "fix" either
+  one back to the raw level -- showing 54% beside a slider that cannot be
+  heard is two answers to the same question. The muted speaker also takes
+  `warn` rather than `fg_dim`: muting is the answer to "why is there no
+  sound", so it should not recede exactly when it is being looked for. An
+  unavailable sound server still dims, because that one really is disabled.
+
 - **The CPU/memory colour ramp is configurable.** `Theme.load_ramp` is green
   below `load_warn_at`, blends to amber by `load_crit_at`, then to red at
   100%; the gauge glow starts at `load_crit_at` so colour and halo cannot

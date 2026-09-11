@@ -333,6 +333,13 @@ def css_provider(theme):
         padding: 5px 10px; text-shadow: none;
     }}
     button.td-btn:hover {{ background: {h('hover', 0.20)}; }}
+    /* Muted is a state worth noticing -- it is the answer to "why is there
+       no sound" -- so the speaker takes the warning colour rather than just
+       dimming, which would make it recede exactly when it matters. GTK
+       recolours a symbolic icon from the widget's `color`. */
+    button.td-btn.td-muted, button.td-btn.td-muted image {{
+        color: {h('warn')};
+    }}
     """
     provider = Gtk.CssProvider()
     provider.load_from_data(css.encode())

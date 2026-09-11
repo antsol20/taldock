@@ -66,9 +66,18 @@ class AudioItem(PanelItem):
 
     def draw(self, cr, w, h):
         self.draw_plate(cr, w, h)
-        muted = self.pulse.muted or not self.pulse.available
-        level = self.pulse.volume
-        colour = self.theme["fg_dim"] if muted else self.theme["fg"]
+        available = self.pulse.available
+        muted = self.pulse.muted or not available
+        # A mute reads as nothing coming out, the same way the mixer's slider
+        # and percentage do. The level itself is untouched -- PulseAudio keeps
+        # it behind the mute -- so unmuting brings the bar straight back.
+        level = 0.0 if muted else self.pulse.volume
+        if not available:
+            colour = self.theme["fg_dim"]   # nothing to control: disabled
+        elif muted:
+            colour = self.theme["warn"]
+        else:
+            colour = self.theme["fg"]
         showing_bar = now() < self._flash_until
         cy = h / 2 - (2.5 if showing_bar else 0)
         self._speaker(cr, w / 2, cy, ICON / 17.0, level, muted, colour)
@@ -82,8 +91,13 @@ class AudioItem(PanelItem):
             rgba(cr, with_alpha(self.theme["fg"], 0.15 * alpha))
             rounded_rect(cr, 6, by, bw, 3, 1.5)
             cr.fill()
-            fill = self.theme["crit"] if level > 1.0 else self.theme["accent"]
+            if muted:
+                fill = colour
+            else:
+                fill = self.theme["crit"] if level > 1.0 else self.theme["accent"]
             rgba(cr, with_alpha(fill, alpha))
+            # The 3px floor is what a zero level has always looked like, so a
+            # mute lands exactly where dragging the slider to 0 does.
             rounded_rect(cr, 6, by, max(3, bw * min(1.0, level)), 3, 1.5)
             cr.fill()
 
@@ -178,6 +192,19 @@ class AudioItem(PanelItem):
         mute_btn.add(mute_img)
         row.pack_start(mute_btn, False, False, 0)
 
+        def show_mute_state():
+            """Icon and colour together, so the button is a readout."""
+            muted = self.pulse.muted
+            mute_img.set_from_icon_name(ICON_MUTED if muted else ICON_UNMUTED,
+                                        Gtk.IconSize.BUTTON)
+            ctx = mute_btn.get_style_context()
+            if muted:
+                ctx.add_class("td-muted")
+            else:
+                ctx.remove_class("td-muted")
+
+        show_mute_state()
+
         scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
         scale.set_draw_value(False)
         scale.set_value(shown_volume() * 100)
@@ -214,9 +241,7 @@ class AudioItem(PanelItem):
             level = shown_volume()
             scale.set_value(level * 100)
             mute_btn.set_active(self.pulse.muted)
-            mute_img.set_from_icon_name(
-                ICON_MUTED if self.pulse.muted else ICON_UNMUTED,
-                Gtk.IconSize.BUTTON)
+            show_mute_state()
             pct.set_text(f"{level*100:.0f}%")
             for update in extra_sync:
                 update()
