@@ -14,6 +14,8 @@ ICON = 17.0
 FLASH_SEC = 1.1     # how long the inline level bar stays after a change
 VOLUME_STEP = 0.05
 FINE_STEP = 0.01    # Shift-scroll
+ICON_UNMUTED = "audio-volume-high-symbolic"
+ICON_MUTED = "audio-volume-muted-symbolic"
 
 
 class AudioItem(PanelItem):
@@ -149,9 +151,18 @@ class AudioItem(PanelItem):
             pop.open_at(self.dock.item_center_root(self))
             return pop
 
+        def shown_volume():
+            """What the mixer displays: muted reads as nothing coming out.
+
+            PulseAudio keeps the level behind a mute, so this is display
+            only -- unmuting brings the previous percentage straight back
+            without us having to remember it.
+            """
+            return 0.0 if self.pulse.muted else self.pulse.volume
+
         head = Gtk.Box(spacing=8)
         head.pack_start(label("Output", "td-title"), False, False, 0)
-        pct = label(f"{self.pulse.volume*100:.0f}%", "td-dim", xalign=1.0)
+        pct = label(f"{shown_volume()*100:.0f}%", "td-dim", xalign=1.0)
         head.pack_end(pct, False, False, 0)
         pop.content.pack_start(head, False, False, 0)
 
@@ -159,13 +170,17 @@ class AudioItem(PanelItem):
         mute_btn = Gtk.ToggleButton()
         mute_btn.set_active(self.pulse.muted)
         mute_btn.get_style_context().add_class("td-btn")
-        mute_btn.add(Gtk.Image.new_from_icon_name(
-            "audio-volume-muted-symbolic", Gtk.IconSize.BUTTON))
+        # The icon is the state, not the action: a speaker while sound is
+        # coming out, a crossed speaker while it is not.
+        mute_img = Gtk.Image.new_from_icon_name(
+            ICON_MUTED if self.pulse.muted else ICON_UNMUTED,
+            Gtk.IconSize.BUTTON)
+        mute_btn.add(mute_img)
         row.pack_start(mute_btn, False, False, 0)
 
         scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
         scale.set_draw_value(False)
-        scale.set_value(self.pulse.volume * 100)
+        scale.set_value(shown_volume() * 100)
         scale.set_hexpand(True)
         row.pack_start(scale, True, True, 0)
         pop.content.pack_start(row, False, False, 0)
@@ -196,9 +211,13 @@ class AudioItem(PanelItem):
         def sync(*_a):
             # Reflect external changes (media keys, other apps) live.
             guard["busy"] = True
-            scale.set_value(self.pulse.volume * 100)
+            level = shown_volume()
+            scale.set_value(level * 100)
             mute_btn.set_active(self.pulse.muted)
-            pct.set_text(f"{self.pulse.volume*100:.0f}%")
+            mute_img.set_from_icon_name(
+                ICON_MUTED if self.pulse.muted else ICON_UNMUTED,
+                Gtk.IconSize.BUTTON)
+            pct.set_text(f"{level*100:.0f}%")
             for update in extra_sync:
                 update()
             guard["busy"] = False
