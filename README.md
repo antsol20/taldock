@@ -71,13 +71,15 @@ taldock --replace      # stop xfce4-panel and take over
 ```
 
 `install.sh` installs into `~/.local`, adds an autostart entry, registers the
-browser tab bridge, and points the Super key at the applications menu. It is
+browser tab bridge, and points the Super key at the applications menu and the
+volume keys at the dock's mixer. It is
 re-runnable and needs `sudo` only if the two packages above are missing.
 
 ### Uninstall
 
 ```sh
 taldock --unbind-super
+taldock --unbind-media
 pkill -f taldock; xfce4-panel &
 rm -f ~/.config/autostart/taldock.desktop ~/.local/bin/taldock
 rm -rf ~/.local/share/taldock
@@ -96,6 +98,7 @@ rm -rf ~/.local/share/taldock
 | Scroll launcher | Cycle that app's windows |
 | Scroll volume icon | Adjust volume (Shift for fine steps) |
 | Middle-click volume | Mute |
+| **Volume keys** | Adjust volume, mute, mute the microphone |
 
 ### In the applications menu
 

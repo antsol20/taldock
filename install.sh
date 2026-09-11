@@ -70,11 +70,14 @@ for dir in \
 done
 [ "$installed_manifest" = 1 ] || warn "No Chromium-family browser profile found; skipped tab bridge."
 
-# ------------------------------------------------------- Super key binding
-# XFCE binds a bare Super press through xfconf; this repoints it (saving
-# whatever was there) so Super opens taldock's applications menu.
+# ----------------------------------------------------------- key bindings
+# XFCE binds shortcuts through xfconf; this repoints them (saving whatever
+# was there) so Super opens taldock's applications menu, and the volume keys
+# drive its mixer. The volume keys matter because xfce4-panel's pulseaudio
+# plugin used to grab them -- with the panel gone, nothing else does.
 if command -v xfconf-query >/dev/null 2>&1; then
     PYTHONPATH="$LIB" python3 -m taldock --bind-super ||         warn "Could not bind the Super key."
+    PYTHONPATH="$LIB" python3 -m taldock --bind-media ||         warn "Could not bind the volume keys."
 fi
 
 # ------------------------------------------------------------------- done
@@ -85,7 +88,7 @@ cat <<EOF
   It will autostart on your next login.
 
   To stop using it and get xfce4-panel back:
-      $BIN/taldock --unbind-super
+      $BIN/taldock --unbind-super ; $BIN/taldock --unbind-media
       pkill -f 'taldock' ; xfce4-panel &
       rm -f "$AUTOSTART/taldock.desktop"
 

@@ -182,8 +182,22 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   `Super`+key combo would stop reaching xfwm4. XFCE already binds a bare
   Super press (that is how Whisker Menu does it); `--bind-super` just
   repoints it and saves the old value.
-- **`--menu` must not import gi.** It is on the keypress path; the whole
-  point of the control socket is to keep that under ~100 ms.
+- **`--menu` and the volume flags must not import gi -- or argparse.** They
+  are on a keypress path, and a held volume key repeats, so `main()` answers
+  a bare control flag from `CONTROL_FLAGS` before importing anything beyond
+  `os`/`sys`. argparse alone cost ~25ms of a ~75ms round trip on this
+  machine (it pulls in `re`, `dataclasses` and `_colorize`); deferring it,
+  `shutil` and `subprocess` took the whole path to ~25ms.
+
+- **The volume keys are ours now, because nothing else claimed them.**
+  `xfce4-pulseaudio-plugin` grabbed `XF86AudioRaiseVolume` and friends, and
+  it is a *panel plugin* -- it went with `xfce4-panel`, and neither it nor
+  `xfce4-volumed-pulse` is installed, so the keys reached no one at all.
+  `--bind-media` points them at `taldock --volume-up` etc. through the same
+  xfconf mechanism as the Super key, and `install.sh` does it. Test them for
+  real with `tools/drive.py key:XF86AudioRaiseVolume`: the keysyms are in
+  the keymap, so this exercises xfsettingsd's dispatch too, not just our
+  handler.
 - **Super-to-close is handled inside the popup, not by the shortcut.** While
   the menu is open it holds a seat grab, so xfwm4 never sees the key and the
   xfconf shortcut cannot fire to toggle it shut. `AppMenuPopup._on_key`
@@ -240,12 +254,16 @@ touching it:
 ## Verifying changes
 
 There is no test suite; this is a GUI that must be looked at. The workflow
-that works, all in the scratchpad:
+that works:
 
-- `drive.py` — XTest pointer/keyboard driver (`move:x,y`, `click:1`, `key:Escape`).
-- `cap.py` — screen capture via `Gdk.pixbuf_get_from_window`. **Use this, not
-  `xfce4-screenshooter`**: the screenshooter perturbs the pointer, so hover
-  and magnification collapse before the frame is taken.
+- `tools/drive.py` — XTest pointer/keyboard driver (`move:x,y`, `click:1`,
+  `key:Escape`, `type:hello`). Keys are keysym names, so
+  `key:XF86AudioRaiseVolume` fires a media key exactly as the hardware does.
+- `tools/cap.py` — screen capture via `Gdk.pixbuf_get_from_window`. **Use
+  this, not `xfce4-screenshooter`**: the screenshooter perturbs the pointer,
+  so hover and magnification collapse before the frame is taken.
+- Both used to be rewritten into the scratchpad each session, which is wiped
+  between them; they live in `tools/` so they stop being rewritten.
 - The screen blanks while unattended; `xfce4-screensaver-command --deactivate`
   brings it back (it blanks rather than locks on this machine).
 - `pkill -f taldock` from a shell **kills the shell too**, because `-f`

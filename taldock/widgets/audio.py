@@ -12,6 +12,8 @@ from .base import PanelItem
 
 ICON = 17.0
 FLASH_SEC = 1.1     # how long the inline level bar stays after a change
+VOLUME_STEP = 0.05
+FINE_STEP = 0.01    # Shift-scroll
 
 
 class AudioItem(PanelItem):
@@ -103,18 +105,29 @@ class AudioItem(PanelItem):
             return GLib.SOURCE_REMOVE
         return GLib.SOURCE_CONTINUE
 
-    def on_scroll(self, direction, event):
-        step = 0.05 if not (event.state & (1 << 0)) else 0.01   # Shift = fine
-        self.pulse.step_volume(step if direction > 0 else -step)
+    # -- adjustment --------------------------------------------------------
+    # Both entry points -- a scroll on the icon and a media key routed through
+    # the control socket -- come through here, so the level flash looks the
+    # same however the volume was changed.
+    def nudge(self, direction, fine=False):
+        step = (FINE_STEP if fine else VOLUME_STEP) * direction
+        self.pulse.step_volume(step)
         if self.pulse.muted and direction > 0:
             self.pulse.set_mute(False)
         self._flash()
+
+    def toggle_mute(self):
+        self.pulse.toggle_mute()
+        self._flash()
+
+    def on_scroll(self, direction, event):
+        self.nudge(1 if direction > 0 else -1,
+                   fine=bool(event.state & (1 << 0)))   # Shift = fine
         return True
 
     def on_click(self, button, x, y, event):
         if button == 2:
-            self.pulse.toggle_mute()
-            self._flash()
+            self.toggle_mute()
             return True
         if button != 1:
             return False

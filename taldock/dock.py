@@ -26,7 +26,7 @@ from .util import (ICONS, draw_shadow, ease_out_cubic, now, paint_surface,
                    rect, rgba, rounded_rect, with_alpha)
 from .windowlist import WindowListPopup
 from .windows import AppDatabase, WindowModel
-from .widgets.audio import AudioItem
+from .widgets.audio import VOLUME_STEP, AudioItem
 from .widgets.battery import BatteryItem
 from .widgets.clock import ClockItem
 from .widgets.network import NetworkItem
@@ -71,6 +71,12 @@ class Dock:
         self.tabs = TabRegistry(self.windows) if self.cfg["browser_tabs"] else None
         self.control = ControlServer({
             "menu": self.toggle_app_menu,
+            # Media keys: XFCE runs `taldock --volume-up` and friends, which
+            # arrive here. See __main__.MEDIA_KEYS.
+            "volume-up": lambda: self.adjust_volume(1),
+            "volume-down": lambda: self.adjust_volume(-1),
+            "volume-mute": self.toggle_mute,
+            "mic-mute": self.toggle_mic_mute,
             "quit": Gtk.main_quit,
         })
         timing.mark("  TabRegistry + ControlServer")
@@ -695,6 +701,33 @@ class Dock:
 
     def item_center_root(self, item):
         return self.root_x() + item.x + item.w / 2
+
+    # ------------------------------------------------------------------
+    # volume, from the media keys
+    # ------------------------------------------------------------------
+    def _audio_item(self):
+        """The volume widget, or None when it is not in `widgets`."""
+        for item in self.status_items:
+            if isinstance(item, AudioItem):
+                return item
+        return None
+
+    def adjust_volume(self, direction):
+        item = self._audio_item()
+        if item is not None:
+            item.nudge(direction)       # also flashes the level bar
+        else:
+            self.pulse.step_volume(VOLUME_STEP * direction)
+
+    def toggle_mute(self):
+        item = self._audio_item()
+        if item is not None:
+            item.toggle_mute()
+        else:
+            self.pulse.toggle_mute()
+
+    def toggle_mic_mute(self):
+        self.pulse.set_mic_mute(not self.pulse.mic_mute)
 
     # -- hover window list -------------------------------------------------
     def on_launcher_hover(self, icon):
