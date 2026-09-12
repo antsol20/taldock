@@ -478,6 +478,13 @@ that works:
   dock's own talflow widget stopped, because only one X client can hold a
   given passive grab -- the second gets BadAccess, which the grabber reports
   rather than swallowing.
+- `tools/talflow_models.py` — records a sample and races every transcription
+  model on OpenRouter, scoring word error rate, latency and actual cost.
+  **Do not benchmark with a clean, famous clip.** The whisper.cpp JFK sample
+  scores 0.0% WER on all fourteen working models, so it separates nothing but
+  latency; `tools/dictation-sample.txt` exists because a useful comparison
+  needs this machine's microphone, this user's voice and the vocabulary
+  actually dictated (product names, `xfconf`, hex numbers read aloud).
 - `tools/cap.py` — screen capture via `Gdk.pixbuf_get_from_window`. **Use
   this, not `xfce4-screenshooter`**: the screenshooter perturbs the pointer,
   so hover and magnification collapse before the frame is taken.

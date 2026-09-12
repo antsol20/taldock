@@ -207,8 +207,13 @@ class Settings(dict):
         return self.get("endpoint") or self.provider["url"]
 
 
-def transcribe(audio_path, settings):
+def transcribe(audio_path, settings, usage=None):
     """POST the recording. Returns (text, error); exactly one is None.
+
+    `usage`, if given, is a dict filled in with whatever the provider
+    reported alongside the transcript -- seconds billed and cost. Passed in
+    rather than returned so the return shape stays two values for the one
+    caller that matters.
 
     Runs on a worker thread: this is seconds of network, and the dock is
     drawing a bar on the main one.
@@ -263,6 +268,8 @@ def transcribe(audio_path, settings):
         return None, f"network error: {exc.reason}"
     except (ValueError, OSError) as exc:
         return None, f"bad response: {exc}"
+    if usage is not None and isinstance(payload.get("usage"), dict):
+        usage.update(payload["usage"])
     text = payload.get("text")
     if text is None:
         return None, f"no text in response: {json.dumps(payload)[:200]}"

@@ -1,0 +1,8 @@
+Right, let me check whether the passive grab is actually firing. The
+xfconf shortcut runs on key press only, so I moved it to XKB and now
+hotkey dot pie watches the modifier state instead. PipeWire needs about a
+hundred and thirty milliseconds before the capture stream delivers
+anything, which was clipping the first syllable. WirePlumber suspends the
+device after five seconds idle. I also fixed the subscription mask, which
+was nought x one hundred instead of nought x eighty. Test it in Alacritty
+and Thunar, then push it to the main branch.
