@@ -54,7 +54,7 @@ DEFAULTS = {
     "menu_sidebar_width": 126,     # category column; 0 hides it
     "menu_label": "Applications",
     "show_menu_label": False,
-    "widgets": ["sysmon", "sep", "network", "battery", "audio",
+    "widgets": ["sysmon", "sep", "talflow", "network", "battery", "audio",
                 "sep", "tray", "sep", "clock"],
     "clock_format": "%H:%M",
     "clock_date_format": "%a %d %b",

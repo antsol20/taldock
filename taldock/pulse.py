@@ -144,6 +144,7 @@ class PulseAudio(GObject.Object):
         self.sinks = []             # all sinks, refreshed lazily
         self.mic_mute = False
         self.mic_index = PA_INVALID_INDEX
+        self.mic_description = ""
         self._default_sink_name = None
         self._default_source_name = None
         self._ctx = None
@@ -254,10 +255,12 @@ class PulseAudio(GObject.Object):
     def _on_source(self, _ctx, info_p, eol, _ud):
         if eol or not info_p:
             return
-        was = (self.mic_mute, self.mic_index)
+        was = (self.mic_mute, self.mic_index, self.mic_description)
         self.mic_mute = bool(info_p.contents.mute)
         self.mic_index = int(info_p.contents.index)
-        if (self.mic_mute, self.mic_index) != was:
+        self.mic_description = (info_p.contents.description
+                                or b"").decode("utf-8", "replace")
+        if (self.mic_mute, self.mic_index, self.mic_description) != was:
             # Without this the bar only repainted on a mic change by luck,
             # when the sink list that follows a refresh happened to emit
             # first -- and then with the old mic state still in hand.

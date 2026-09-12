@@ -32,6 +32,7 @@ from .widgets.clock import ClockItem
 from .widgets.network import NetworkItem
 from .widgets.separator import SeparatorItem
 from .widgets.sysmon import SysMonItem
+from .widgets.talflow import TalflowItem
 from .widgets.tray import TrayItem
 
 WIDGETS = {
@@ -39,6 +40,7 @@ WIDGETS = {
     "network": NetworkItem,
     "battery": BatteryItem,
     "audio": AudioItem,
+    "talflow": TalflowItem,
     "tray": TrayItem,
     "clock": ClockItem,
     "sep": SeparatorItem,
@@ -852,6 +854,12 @@ class Dock:
         return GLib.SOURCE_REMOVE
 
     def shutdown(self):
+        # Status items own real resources -- talflow holds an X key grab and
+        # may have a recorder running -- so they are torn down explicitly
+        # rather than left to process exit.
+        for item in self.status_items:
+            item.destroy()
+        self.status_items = []
         gdk_window = self.window.get_window()
         if gdk_window is not None:
             x11.clear_strut(gdk_window.get_xid())

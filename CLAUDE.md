@@ -17,6 +17,9 @@ records the things that are not obvious from the code.
 | `widgets/` | Status-area cells (`PanelItem` subclasses), registered in `dock.WIDGETS` |
 | `sni.py`, `dbusmenu.py` | StatusNotifier tray host and its menu renderer |
 | `pulse.py`, `nm.py` | ctypes libpulse binding; NetworkManager over GDBus |
+| `talflow.py` | Hold-to-talk dictation: record, transcribe, deliver |
+| `hotkey.py` | Passive X key grab that reports release as well as press |
+| `xtype.py` | Synthetic typing through XTest, and the X focus query |
 | `tabs.py` | Unix-socket server receiving browser tab lists |
 | `x11.py` | ctypes libX11 shim for what GDK does not expose |
 
@@ -99,6 +102,33 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   handler returns `True` for everything it acts on, which stops the second
   invocation; the keys it ignores ran it twice for nothing. A media key
   reached that way would have stepped the volume twice.
+
+- **A shared scratch keycode corrupts characters that are already in
+  flight.** `xtype.py` types characters outside the layout by binding them to
+  an unused keycode. Reusing one keycode for each in turn looks safe -- the
+  key events are generated before the next `XChangeKeyboardMapping`, and X
+  delivers events to a client in order -- but it is not: Xlib refreshes its
+  keymap cache as soon as it *reads* the MappingNotify off the socket, which
+  can happen while draining the connection and therefore before the
+  application dispatches the earlier key events. An em dash came out as the
+  smart quote typed after it. Each distinct character now gets its own
+  keycode (18 are free on this machine), bound before any of them is typed
+  and released only once the whole transcript has drained.
+
+- **`hotkey.py` must pin the GTK version itself.** It calls
+  `Gtk.accelerator_parse`, which returns two values under GTK 3 and three
+  under GTK 4. Inside the dock the pin in `dock.py` has already happened, so
+  an unpinned import works; run from a tool that has not loaded GTK and
+  PyGObject picks GTK 4 and the call fails with `too many values to unpack`
+  -- at parse time, not import time.
+
+- **Xlib's default error handler calls `exit()`.** `XGrabKey` reports a
+  combination that is already taken asynchronously, as BadAccess, so without
+  a handler installed a taken shortcut would terminate the dock rather than
+  report itself. `hotkey.py` installs one, chains anything that is not ours
+  to GDK's (the handler is global to the process, not per-connection), and
+  keeps the ctypes trampoline at module scope -- a collected closure would
+  segfault the next time Xlib called it.
 
 - **Animate off the frame clock** (`add_tick_callback`), not a 16ms timeout,
   and ease `pointer_x` toward the raw pointer: motion events arrive coalesced
@@ -209,6 +239,45 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   only by luck, when the sink list that follows a refresh happened to emit
   first, and then with the old state still in hand.
 
+- **Dictation is hold-to-talk, which is why it cannot use xfconf.** Every
+  other shortcut in this project goes through
+  `/commands/custom/<accel>`, but that mechanism runs a command on key
+  *press* and says nothing whatsoever about release, so it cannot express
+  "while held". `hotkey.py` grabs the combination from the X server instead.
+  This does **not** contradict the Super-key note below: the danger there is
+  grabbing a bare modifier, whose active grab lasts as long as the key is
+  down. Grabbing a normal key with a modifier mask activates only for that
+  one chord. Two details are load-bearing:
+  `XkbSetDetectableAutoRepeat` (per-client, so it does not affect GDK) turns
+  a held key into repeated KeyPress with **no** interleaved KeyRelease and
+  exactly one real release at the end -- measured here as 48 presses and 1
+  release for a 700ms hold, and without it a hold is indistinguishable from
+  a burst of taps. And the combination has to be grabbed once for every
+  state the lock modifiers can be in, or it silently stops working with Num
+  Lock on.
+
+- **A transcript is typed, never pasted, and never into the wrong window.**
+  Alacritty 0.16 binds paste to Ctrl+Shift+V and leaves Ctrl+V unbound, so a
+  synthesised Ctrl+V arrives at the pty as the raw byte 0x16 -- readline's
+  `quoted-insert` -- and pastes nothing while leaving the shell waiting to
+  insert the next keystroke literally; xfce4-terminal is the same. Typing the
+  characters needs no agreement with the target and leaves the clipboard
+  alone. The second half matters just as much: synthetic keystrokes go
+  wherever focus is *now*, so `talflow` records `_NET_ACTIVE_WINDOW` when
+  recording starts and refuses to type if it has changed, putting the text on
+  the clipboard instead. This project has already leaked XTest keystrokes
+  into an unintended window twice while testing. Typing also waits for
+  Ctrl/Super to actually be released, or the first characters would fire
+  shortcuts in the target instead of entering text.
+
+- **talflow keeps its own config file because it holds an API key.**
+  `~/.config/taldock/talflow.json`, written 0600. `config.json` is the file a
+  user would paste into a bug report about the bar's appearance, and
+  `Config.save()` rewrites it whenever a launcher is pinned. The key falls
+  back to `$TALFLOW_OPENROUTER_KEY` only while the file's `api_key` is empty.
+  The popup has a "Reload settings" button precisely so pasting the key in
+  does not mean restarting the dock.
+
 - **The CPU/memory colour ramp is configurable.** `Theme.load_ramp` is green
   below `load_warn_at`, blends to amber by `load_crit_at`, then to red at
   100%; the gauge glow starts at `load_crit_at` so colour and halo cannot
@@ -239,6 +308,15 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   the ~300ms that prewarming exists to keep off the Super key. Note
   `Popup.dismiss()` emits `dismissed` *before* it hides, so the rebuild goes
   through an idle to land after the hide.
+- **The dictation icon is the entire user interface, so the states have to
+  read apart at 17px.** There is deliberately no waveform overlay -- it was
+  asked for that way. Colour carries the state; a badge is the second cue.
+  Recording and error share `crit`, and are separated by the pulse (recording
+  is the only animated red) and the cross. `tools/talflow_states.py` renders
+  all six side by side, offline, because a running dock cannot be put into
+  the failure states on demand and constructing a second `Dock` would take
+  the tray away from the real one.
+
 - **The Super key goes through xfconf, not an X grab.** `XGrabKey` on
   `Super_L` activates an active grab for as long as the key is held, so every
   `Super`+key combo would stop reaching xfwm4. XFCE already binds a bare
@@ -321,6 +399,15 @@ that works:
 - `tools/drive.py` — XTest pointer/keyboard driver (`move:x,y`, `click:1`,
   `key:Escape`, `type:hello`). Keys are keysym names, so
   `key:XF86AudioRaiseVolume` fires a media key exactly as the hardware does.
+- `tools/type_selftest.py` — round-trips `xtype.py` through a window it
+  creates itself, so it cannot leak keystrokes into the user's session. Six
+  cases including characters outside the layout.
+- `tools/talflow_selftest.py` — the whole dictation pipeline: a real XTest
+  hold of the shortcut, a real recording, a real transcription round trip,
+  and both delivery paths (typed / parked on the clipboard). It needs the
+  dock's own talflow widget stopped, because only one X client can hold a
+  given passive grab -- the second gets BadAccess, which the grabber reports
+  rather than swallowing.
 - `tools/cap.py` — screen capture via `Gdk.pixbuf_get_from_window`. **Use
   this, not `xfce4-screenshooter`**: the screenshooter perturbs the pointer,
   so hover and magnification collapse before the frame is taken.
@@ -345,6 +432,14 @@ Run a throwaway config with `--config` rather than editing `~/.config/taldock`.
   machine's tray is SNI-only (`_NET_SYSTEM_TRAY_S0` was not even owned), so it
   has not mattered. Supporting XEmbed means a second X connection in `x11.py`
   driven by a GLib fd watch, since GDK cannot deliver the ClientMessages.
+- **Dictation cannot fire while one of our own popups is open.** A popup
+  holds a seat grab, which outranks a passive grab, so the shortcut never
+  reaches `hotkey.py`. This is the same mechanism that forces the media keys
+  to be routed through `Popup._on_key`; dictating into the dock's own menu is
+  unlikely enough that it has not been worth the same treatment, which would
+  additionally need key *release* delivered to the popup.
+- **The `elevenlabs` provider row is untested** -- written from Scribe's
+  documented shape, never run against the service.
 - **Wayland is unsupported** and would need a full rewrite (layer-shell).
 - Multi-monitor is implemented (`monitor` config key, `monitors-changed`
   handling) but has only been exercised on a single 1920×1080 display.

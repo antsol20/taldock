@@ -45,6 +45,18 @@ panel, in one process.
 - System tray (StatusNotifier/Ayatana), with full D-Bus menu support
 - Clock with a calendar popup
 
+**Dictation — talflow (status area)**
+- Hold **Ctrl+Super+Space**, speak, let go: the words are typed into
+  whatever had focus
+- The icon is the whole readout — idle, recording, transcribing, typed,
+  parked on the clipboard, failed
+- Speech-to-text over any OpenAI-compatible endpoint; OpenRouter and Nvidia
+  Parakeet by default, and no LLM clean-up pass
+- The transcript is **typed**, not pasted, so it lands in terminals and TUIs
+  that would ignore a synthesised Ctrl+V
+- Nothing is typed into a window that took focus while you were speaking —
+  that transcript goes to the clipboard instead
+
 ## Requirements
 
 - X11 (**Wayland is not supported** — the dock relies on X11 struts and EWMH)
@@ -57,6 +69,9 @@ packages, which the installer adds for you:
 ```
 python3-gi-cairo  gir1.2-wnck-3.0
 ```
+
+Dictation additionally needs `pw-record` (from `pipewire-bin`, present on a
+stock Xubuntu 26.04) and an API key for a transcription service.
 
 Optional, used when present: libpulse (volume), NetworkManager (Wi-Fi),
 UPower (battery). Each degrades gracefully — a machine with no battery simply
@@ -100,6 +115,8 @@ rm -rf ~/.local/share/taldock
 | Scroll volume icon | Adjust volume (Shift for fine steps) |
 | Middle-click volume | Mute |
 | **Volume keys** | Adjust volume, mute, mute the microphone |
+| **Ctrl+Super+Space** (hold) | Dictate: records while held, types the transcript on release |
+| Click the microphone | Last transcript, model, input device, shortcut |
 
 ### In the applications menu
 
@@ -130,6 +147,61 @@ restores it.
 `taldock --menu` talks to the running dock over a unix socket and
 deliberately never imports GTK, so a keypress costs about 90 ms end to end
 instead of the ~300 ms a full interpreter start would.
+
+### Dictation
+
+Hold **Ctrl+Super+Space**, say something, let go. The recording stops on
+release, goes to a speech-to-text endpoint, and the text is typed into the
+window that was focused when you started. A press shorter than a quarter of
+a second is treated as a fumble and thrown away rather than sent.
+
+The icon says where it has got to:
+
+| Icon | State |
+| --- | --- |
+| Grey microphone | Idle |
+| Red, pulsing | Recording |
+| Purple, with a turning arc | Transcribing |
+| Green, tick | Typed into the target window |
+| Amber, card | Focus had moved — transcript is on the clipboard instead |
+| Red, cross | Failed; the popup and tooltip say why |
+
+Put your API key in `~/.config/taldock/talflow.json`, which is created on
+first run with mode 0600:
+
+```json
+{
+  "shortcut": "<Primary><Super>space",
+  "provider": "openrouter",
+  "model": "nvidia/parakeet-tdt-0.6b-v3",
+  "language": "en",
+  "api_key": "sk-or-..."
+}
+```
+
+Then **Reload settings** in the microphone's popup, rather than restarting
+the dock. While `api_key` is empty the `TALFLOW_OPENROUTER_KEY` environment
+variable is used instead, which is convenient for a first run but means the
+key is readable by every process you start.
+
+Two deliberate choices worth knowing:
+
+**The transcript is typed as keystrokes, not pasted.** Alacritty binds paste
+to Ctrl+Shift+V and leaves Ctrl+V unbound, so a synthesised Ctrl+V reaches
+the shell as the raw byte `0x16` — readline's `quoted-insert` — and pastes
+nothing at all; xfce4-terminal behaves the same way. Typed characters need no
+such agreement, and your clipboard is left alone. Characters your keyboard
+layout cannot produce (an em dash, curly quotes) are typed by borrowing an
+unused keycode for the duration.
+
+**Nothing is typed if focus moved.** Synthetic keystrokes go wherever focus
+is *now*, so if the window you were dictating into has lost focus by the time
+the text comes back, it is put on the clipboard and the icon turns amber
+rather than being typed into whatever took its place.
+
+The microphone must not be muted — a muted input records silence, still costs
+a request, and comes back as "nothing heard". The popup flags it, next to the
+device name.
 
 ## Browser tab stacking
 
@@ -169,7 +241,7 @@ so you can spell settings out explicitly without them being tidied away.
 | `opacity` | `0.95` | Bar translucency |
 | `reserve_space` | `true` | Set `_NET_WM_STRUT_PARTIAL` |
 | `launchers` | see `config.py` | Pinned `.desktop` ids |
-| `widgets` | see `config.py` | Status order; `sep` draws a divider |
+| `widgets` | see `config.py` | Status order; `sep` draws a divider, `talflow` is dictation |
 | `menu_width` | `452` | Applications menu width |
 | `menu_height` | `372` | Height of its scrolling application list |
 | `menu_sidebar_width` | `126` | Category column; `0` hides it |
@@ -186,6 +258,31 @@ the full width of the screen, set `side_margin` to `0`.
 `menu_height` sizes the application list, not the whole card — the search
 box and footer add a fixed ~133px. Anything that would run off the top of
 the screen is clamped automatically, so an over-large value is safe.
+
+### Dictation settings
+
+`~/.config/taldock/talflow.json`, written 0600 on first run. It is a separate
+file from `config.json` because it holds an API key: `config.json` is the one
+you would paste into a bug report, and the dock rewrites it whenever you pin
+a launcher.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `shortcut` | `"<Primary><Super>space"` | Hold-to-talk combination, in Gtk accelerator syntax |
+| `provider` | `"openrouter"` | `openrouter` (any OpenAI-compatible endpoint) or `elevenlabs` |
+| `endpoint` | `""` | Overrides the provider's own URL |
+| `model` | `"nvidia/parakeet-tdt-0.6b-v3"` | Sent as the `model` field |
+| `language` | `"en"` | Sent with the request; OpenRouter validates it |
+| `api_key` | `""` | Falls back to `$TALFLOW_OPENROUTER_KEY` while empty |
+| `min_seconds` | `0.25` | Shorter holds are discarded, unsent |
+| `max_seconds` | `120` | Hard stop, so a stuck key cannot record for ever |
+| `request_timeout` | `45` | Seconds to wait for the transcription |
+| `type_delay_ms` | `4` | Pause between batches of keystrokes |
+| `type_batch` | `6` | Keystrokes sent per main-loop tick |
+
+The shortcut is grabbed from the X server directly rather than going through
+xfconf like the Super key, because an xfconf binding runs a command on key
+*press* and can say nothing about release — it cannot express "while held".
 
 Try settings without touching your own config:
 
@@ -221,7 +318,15 @@ obvious and cost real debugging time.
 ```sh
 python3 -m taldock --config /tmp/try.json   # run from a checkout
 python3 tools/check_layout_continuity.py    # magnification regression check
+python3 tools/type_selftest.py              # synthetic typing round trip
+python3 tools/talflow_selftest.py           # dictation pipeline, end to end
+python3 tools/talflow_states.py out.png     # every dictation icon state
 ```
+
+`type_selftest.py` and `talflow_selftest.py` create the window they type
+into, so they cannot leak synthetic keystrokes into whatever you are doing.
+`talflow_selftest.py` needs the dock's own talflow widget to be stopped: only
+one X client can hold a given passive key grab.
 
 There is no unit-test suite: this is a GUI, and most of it has to be looked
 at. `CLAUDE.md` describes the approach that works, including why
@@ -285,6 +390,11 @@ is at fault, not the tray. Restart that application to get its icon back.
 - Multi-monitor is implemented but has only been exercised on a single
   1920×1080 display.
 - HiDPI scaling is handled in the icon paths but is likewise untested.
+- **Dictation does not work while one of taldock's own popups is open.** A
+  popup holds a seat grab, which outranks the passive key grab, so the
+  shortcut never reaches it.
+- The `elevenlabs` provider row is written from Scribe's documented request
+  shape but has not been exercised against the live service.
 
 Bug reports and patches welcome.
 
