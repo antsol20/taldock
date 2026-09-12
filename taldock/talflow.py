@@ -86,7 +86,11 @@ DEFAULTS = {
     "shortcut": "<Primary><Alt>space",
     "provider": "openrouter",
     "endpoint": "",              # blank: use the provider's own URL
-    "model": "nvidia/parakeet-tdt-0.6b-v3",
+    # Chosen by tools/talflow_models.py on a real 77s dictation, not from the
+    # model list: it beat parakeet on both word and character error rate, and
+    # at realistic dictation length the latency difference is noise. Re-run
+    # that tool on your own voice before trusting this.
+    "model": "microsoft/mai-transcribe-2",
     "language": "en",
     "api_key": "",
     "min_seconds": 0.25,         # shorter than this is a fumble, not speech

@@ -339,6 +339,25 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   Ctrl/Super to actually be released, or the first characters would fire
   shortcuts in the target instead of entering text.
 
+- **The transcription model was chosen by measurement, and the measurement
+  is worth repeating, not trusting.** On the whisper.cpp JFK clip all
+  fourteen working models scored 0.0% WER; on 77 seconds of real dictation
+  they spread from 6.6% to 19.3%. Two traps in reading those numbers. First,
+  much of the absolute WER is not model error at all: `pipewire` ->
+  "pipe wire", `keycode` -> "key code", `autorepeat` -> "auto repeat" are the
+  reference's compound spellings, and the speaker's own slips ("cannot" read
+  as "could not") hit every model alike -- which is why CER, at roughly half
+  the WER, is the better guide, and why the per-error listing matters more
+  than either. Second, the latency column is a function of clip length:
+  measured on 77s, `openai/gpt-transcribe` looked hopeless at 6.68s, but on
+  an 8s clip -- an actual dictation -- every shortlisted model lands within
+  about a second of the others, so latency stopped being a reason to choose
+  anything. `microsoft/mai-transcribe-2` replaced parakeet because it made 11
+  differing regions against parakeet's 15, and parakeet's extra four were
+  meaning-changing mishearings (`state` -> "site", `input` -> "import",
+  `whether` -> "where the") rather than spacing. It is one take by one
+  speaker: re-run `tools/talflow_models.py` before believing it elsewhere.
+
 - **talflow keeps its own config file because it holds an API key.**
   `~/.config/taldock/talflow.json`, written 0600. `config.json` is the file a
   user would paste into a bug report about the bar's appearance, and

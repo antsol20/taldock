@@ -174,7 +174,7 @@ first run with mode 0600:
 {
   "shortcut": "<Primary><Alt>space",
   "provider": "openrouter",
-  "model": "nvidia/parakeet-tdt-0.6b-v3",
+  "model": "microsoft/mai-transcribe-2",
   "language": "en",
   "api_key": "sk-or-..."
 }
@@ -287,7 +287,7 @@ a launcher.
 | `shortcut` | `"<Primary><Alt>space"` | Hold-to-talk combination, in Gtk accelerator syntax |
 | `provider` | `"openrouter"` | `openrouter` (any OpenAI-compatible endpoint) or `elevenlabs` |
 | `endpoint` | `""` | Overrides the provider's own URL |
-| `model` | `"nvidia/parakeet-tdt-0.6b-v3"` | Sent as the `model` field |
+| `model` | `"microsoft/mai-transcribe-2"` | Sent as the `model` field |
 | `language` | `"en"` | Sent with the request; OpenRouter validates it |
 | `api_key` | `""` | Falls back to `$TALFLOW_OPENROUTER_KEY` while empty |
 | `min_seconds` | `0.25` | Shorter holds are discarded, unsent |
@@ -352,7 +352,15 @@ not on a leaderboard. A run costs a few pence.
 
 Also test near-silence, by recording a couple of seconds of nothing: a
 fumbled press captures room tone, and models differ wildly in what they
-invent from it.
+invent from it. On 4.9s of silence, four of the fifteen produced text —
+Mandarin, an invented paragraph about films, "I think it's a good idea." and
+"no," four hundred times over. Anything that does that will type it into
+whatever you had focused, so score it before you score accuracy.
+
+The default model was picked this way rather than off the model list, on a
+77-second dictation on the author's voice and microphone. Judge it on yours:
+on clean studio audio every model scores identically, so the differences
+only appear on real speech.
 
 `type_selftest.py` and `talflow_selftest.py` create the window they type
 into, so they cannot leak synthetic keystrokes into whatever you are doing.
