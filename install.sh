@@ -22,6 +22,9 @@ python3 - <<'PY' 2>/dev/null || need_pkgs+=(gir1.2-wnck-3.0)
 import gi; gi.require_version("Wnck", "3.0")
 from gi.repository import Wnck
 PY
+# The dictation widget records through pw-record; it ships in the default
+# widget list, so a fresh install needs it.
+command -v pw-record >/dev/null 2>&1 || need_pkgs+=(pipewire-bin)
 if [ ${#need_pkgs[@]} -gt 0 ]; then
     say "Installing runtime packages: ${need_pkgs[*]}"
     sudo apt-get install -y "${need_pkgs[@]}"
@@ -86,6 +89,12 @@ cat <<EOF
 
   Run it now:        $BIN/taldock --replace
   It will autostart on your next login.
+
+  Dictation (talflow): put an API key in
+      ${XDG_CONFIG_HOME:-$HOME/.config}/taldock/talflow.json
+  then hold Ctrl+Super+Space and speak. The shortcut is grabbed directly,
+  so there is no binding step -- but it cannot be shared with another
+  application that already holds it.
 
   To stop using it and get xfce4-panel back:
       $BIN/taldock --unbind-super ; $BIN/taldock --unbind-media
