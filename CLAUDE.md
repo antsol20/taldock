@@ -147,6 +147,18 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   keeps the ctypes trampoline at module scope -- a collected closure would
   segfault the next time Xlib called it.
 
+- **An animation's `t` must be clamped where it is *drawn*, not only where
+  it is expired.** `LauncherZone`'s tick callback clears `bounce_t0` once
+  `BOUNCE_SEC` has passed and then queues a draw, but `draw()` takes its own
+  `now()` a few milliseconds later -- so the final frame of a launch bounce
+  can arrive at `t = 1.002`. `(1.0 - t) ** 1.5` on a negative base returns a
+  **complex** number in Python rather than raising, which travels silently
+  down to `cr.translate()` and surfaces there as `TypeError: must be real
+  number, not complex`, inside the draw handler, aborting `_on_draw` -- so
+  the entire bar, status widgets included, fails to paint that frame. It is
+  rare enough (one frame at the end of a bounce) to look like a random
+  flicker. Found in `~/.xsession-errors` while chasing something else.
+
 - **Animate off the frame clock** (`add_tick_callback`), not a 16ms timeout,
   and ease `pointer_x` toward the raw pointer: motion events arrive coalesced
   and unevenly, so following them directly stutters.

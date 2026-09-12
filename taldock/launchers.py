@@ -352,7 +352,14 @@ class LauncherZone:
 
         if icon.bounce_t0:
             t = (moment - icon.bounce_t0) / BOUNCE_SEC
-            # Two decaying hops, away from the screen edge.
+            # Two decaying hops, away from the screen edge. `t` is clamped
+            # because the bounce is expired in the tick callback but drawn
+            # from a fresh now() a few ms later, so the last frame can arrive
+            # at t slightly over 1 -- and a negative float to a fractional
+            # power is *complex* in Python, which reaches cr.translate() as
+            # "TypeError: must be real number, not complex" and aborts the
+            # whole draw, blanking the bar for that frame.
+            t = min(1.0, t)
             hop = abs(math.sin(t * math.pi * 2.0)) * (1.0 - t) ** 1.5
             y += (-1 if up else 1) * hop * self.icon_size * 0.42
 
