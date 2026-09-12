@@ -17,8 +17,12 @@ PA_CONTEXT_READY = 4
 PA_CONTEXT_FAILED = 5
 PA_CONTEXT_TERMINATED = 6
 PA_SUBSCRIPTION_MASK_SINK = 0x0001
-PA_SUBSCRIPTION_MASK_SERVER = 0x0100
 PA_SUBSCRIPTION_MASK_SOURCE = 0x0002
+# 0x0080, not 0x0100: 0x0100 is the deprecated AUTOLOAD bit, and passing it
+# made pa_context_subscribe reject the whole mask, so *no* subscription
+# events arrived at all -- the bar only ever noticed a volume or mute change
+# made elsewhere when something else happened to trigger a refresh.
+PA_SUBSCRIPTION_MASK_SERVER = 0x0080
 PA_INVALID_INDEX = 0xFFFFFFFF
 
 

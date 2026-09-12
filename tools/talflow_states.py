@@ -30,7 +30,8 @@ from taldock.widgets.talflow import TalflowItem       # noqa: E402
 OUT = sys.argv[1] if len(sys.argv) > 1 else "talflow-states.png"
 CELL_W, CELL_H, PAD = 26, 54, 12
 
-STATES = [tf.IDLE, tf.RECORDING, tf.SENDING, tf.PASTED, tf.CLIPBOARD, tf.ERROR]
+STATES = [tf.IDLE, tf.RECORDING, tf.SENDING, tf.PASTED, tf.CLIPBOARD,
+          tf.ERROR, "muted"]
 
 
 class StubFlow:
@@ -38,6 +39,7 @@ class StubFlow:
     def __init__(self):
         self.state = tf.IDLE
         self.ready = True
+        self.mic_muted = False
 
 
 class StubDock:
@@ -67,7 +69,9 @@ rounded_rect(cr, 0, 0, width, CELL_H, 0)
 cr.fill()
 
 for index, state in enumerate(STATES):
-    item.flow.state = state
+    # "muted" is not a state but a condition drawn over the idle glyph.
+    item.flow.mic_muted = state == "muted"
+    item.flow.state = tf.IDLE if state == "muted" else state
     cr.save()
     cr.translate(PAD + index * (CELL_W + PAD), 0)
     cr.rectangle(0, 0, CELL_W, CELL_H)

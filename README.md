@@ -165,6 +165,7 @@ The icon says where it has got to:
 | Green, tick | Typed into the target window |
 | Amber, card | Focus had moved — transcript is on the clipboard instead |
 | Red, cross | Failed; the popup and tooltip say why |
+| Amber, struck through | Your microphone is muted — nothing would be recorded |
 
 Put your API key in `~/.config/taldock/talflow.json`, which is created on
 first run with mode 0600:
@@ -199,9 +200,24 @@ is *now*, so if the window you were dictating into has lost focus by the time
 the text comes back, it is put on the clipboard and the icon turns amber
 rather than being typed into whatever took its place.
 
-The microphone must not be muted — a muted input records silence, still costs
-a request, and comes back as "nothing heard". The popup flags it, next to the
-device name.
+**A muted microphone is visible before you press.** The icon is struck
+through in amber whenever the input is muted, and holding the shortcut then
+refuses outright rather than recording silence and paying for a request that
+comes back as "nothing heard". It clears itself the moment you unmute.
+
+**Recording starts before you finish pressing the shortcut.** PipeWire needs
+around 130ms to have a capture stream actually delivering audio, which is
+enough to lose the start of your first word. taldock therefore begins
+recording when the shortcut's *modifiers* go down, a fraction of a second
+before its key, and keeps that audio — so the front of the first word is
+already captured by the time you have finished pressing. Set `prewarm` to
+`false` to turn this off; the microphone then opens only on the full chord,
+at the cost of the clipped start.
+
+The trade-off is that holding those modifiers for some *other* shortcut opens
+the microphone briefly too. It is abandoned after 1.5s if the shortcut's own
+key never arrives, and the audio is discarded, but the live-microphone dot on
+the volume icon will blink in the meantime.
 
 ## Browser tab stacking
 
@@ -279,6 +295,7 @@ a launcher.
 | `request_timeout` | `45` | Seconds to wait for the transcription |
 | `type_delay_ms` | `4` | Pause between batches of keystrokes |
 | `type_batch` | `6` | Keystrokes sent per main-loop tick |
+| `prewarm` | `true` | Start capturing on the modifiers, before the shortcut's key |
 
 The shortcut is grabbed from the X server directly rather than going through
 xfconf like the Super key, because an xfconf binding runs a command on key
@@ -368,6 +385,14 @@ shortcut has this problem. To see what is bound bare:
 ```sh
 xfconf-query -c xfce4-keyboard-shortcuts -l -v | grep -E '/(Super|Alt|Control|Shift)_[LR] '
 ```
+
+**A volume or mute change made in another application is not shown.** Fixed
+— but if you are running an older build, this is the symptom: the bar tracked
+everything done through its own mixer and nothing done anywhere else, because
+`PA_SUBSCRIPTION_MASK_SERVER` was spelled `0x0100` (the deprecated AUTOLOAD
+bit) instead of `0x0080`, which made libpulse reject the whole subscription.
+Every setter updates its own cache optimistically, so the dock's own controls
+always looked correct, which is why it went unnoticed.
 
 **The system tray stays empty.** Something else has claimed the
 StatusNotifier name. Check who owns it:

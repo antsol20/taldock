@@ -48,6 +48,12 @@ ERROR = "error"
 
 #: How long the success flash stays before the icon returns to idle.
 PASTED_HOLD_MS = 1600
+#: A pre-armed recorder is abandoned after this long without the actual key,
+#: so holding the modifiers for some *other* shortcut cannot leave the
+#: microphone open.
+PREARM_MAX_MS = 1500
+#: Recognised so the state can clear itself when the microphone comes back.
+MUTED_MESSAGE = "microphone is muted"
 #: Polled while waiting for the user to let go of the shortcut's modifiers.
 MODIFIER_POLL_MS = 30
 MODIFIER_WAIT_MS = 2500
@@ -88,6 +94,10 @@ DEFAULTS = {
     "request_timeout": 45.0,
     "type_delay_ms": 4,          # per batch of keystrokes
     "type_batch": 6,             # keystrokes per main-loop tick
+    # Start capturing when the shortcut's modifiers go down, before its key
+    # does. PipeWire needs ~130ms to have a stream delivering audio, which is
+    # otherwise clipped off the front of the first word.
+    "prewarm": True,
 }
 
 #: Consulted only when `api_key` is blank, so the key can live in the
@@ -264,13 +274,14 @@ class Talflow(GObject.Object):
 
     __gsignals__ = {"state-changed": (GObject.SignalFlags.RUN_LAST, None, ())}
 
-    def __init__(self, typist=None, settings=None):
+    def __init__(self, typist=None, settings=None, pulse=None):
         super().__init__()
         from .hotkey import HotkeyGrabber
         from .xtype import Typist
 
         self.settings = settings or Settings()
         self.typist = typist or Typist()
+        self.pulse = pulse
         self.state = IDLE
         self.message = ""
         self.last_text = ""
@@ -278,6 +289,9 @@ class Talflow(GObject.Object):
         self.progress = 0.0        # 0..1 through max_seconds, for the icon
 
         self._proc = None
+        self._prearmed = False
+        self._prearm_source = 0
+        self._was_muted = False
         self._target = 0
         self._started = 0.0
         self._cap_source = 0
@@ -291,7 +305,12 @@ class Talflow(GObject.Object):
         self.hotkey = HotkeyGrabber(self.settings["shortcut"])
         self.hotkey.connect("pressed", lambda *_a: self.start())
         self.hotkey.connect("released", lambda *_a: self.stop())
+        self.hotkey.connect("armed", lambda *_a: self.prearm())
+        self.hotkey.connect("disarmed", lambda *_a: self.cancel_prearm())
         self._check_shortcut()
+        if self.pulse is not None:
+            self._was_muted = self.mic_muted
+            self.pulse.connect("changed", self._on_pulse)
         if not self.typist.ok:
             self._fail(self.typist.error or "no X connection for typing")
         elif self.hotkey.error:
@@ -324,6 +343,26 @@ class Talflow(GObject.Object):
     def ready(self):
         return self.hotkey.ok and self.typist.ok
 
+    @property
+    def mic_muted(self):
+        """True only when we positively know the input is muted.
+
+        Deliberately not `not pulse.mic_live`: that is also false when there
+        is no sound server at all, and refusing to record in that case would
+        be wrong -- pw-record talks to PipeWire directly and may work fine.
+        """
+        return bool(self.pulse and self.pulse.available and self.pulse.mic_mute)
+
+    def _on_pulse(self, *_a):
+        muted = self.mic_muted
+        if muted == self._was_muted:
+            return
+        self._was_muted = muted
+        if not muted and self.state == ERROR and self.message == MUTED_MESSAGE:
+            self._set_state(IDLE)       # they unmuted; stop complaining
+        else:
+            self.emit("state-changed")  # the icon carries the mute marker
+
     def describe_shortcut(self):
         """The shortcut as a person would write it."""
         return (self.settings["shortcut"]
@@ -332,24 +371,84 @@ class Talflow(GObject.Object):
                 .replace("<Alt>", "Alt+").replace("space", "Space"))
 
     # -- recording ---------------------------------------------------------
-    def start(self):
-        if self.state in (RECORDING, SENDING):
-            return
-        self._clear_timers()
+    def _spawn(self, quiet=False):
+        """Start pw-record writing to `self._wav`. True if it is running."""
         try:
             os.makedirs(os.path.dirname(self._wav), mode=0o700, exist_ok=True)
-        except OSError as exc:
-            return self._fail(f"cannot create {os.path.dirname(self._wav)}: {exc}")
-        # Remember where the words are meant to go before anything else can
-        # take focus; nothing is typed later unless this is still active.
-        self._target = self.typist.active_window()
-        try:
             self._proc = Gio.Subprocess.new(
                 ["pw-record", "--rate=16000", "--channels=1", "--format=s16",
                  self._wav],
                 Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE)
-        except GLib.Error as exc:
-            return self._fail(f"cannot start pw-record: {exc.message}")
+        except (OSError, GLib.Error) as exc:
+            self._proc = None
+            message = getattr(exc, "message", str(exc))
+            if not quiet:
+                self._fail(f"cannot start pw-record: {message}")
+            return False
+        return True
+
+    def prearm(self):
+        """Begin capturing before the shortcut's own key is pressed.
+
+        The audio from here to the key press is kept -- a fraction of a second
+        of room tone in front of the first word costs nothing and is what
+        stops the word being clipped. If the key never comes, because the
+        modifiers were held for some other shortcut entirely, the recorder is
+        killed and its file discarded by `PREARM_MAX_MS`.
+        """
+        if self.state in (RECORDING, SENDING) or self._proc is not None:
+            return
+        if not self.settings.get("prewarm", True) or self.mic_muted:
+            return
+        if not self._spawn(quiet=True):
+            return
+        self._prearmed = True
+        self._prearm_source = GLib.timeout_add(PREARM_MAX_MS,
+                                               self._prearm_expired)
+
+    def _prearm_expired(self):
+        self._prearm_source = 0
+        self.cancel_prearm()
+        return GLib.SOURCE_REMOVE
+
+    def cancel_prearm(self):
+        """Throw away a pre-armed recorder that was never claimed."""
+        if not self._prearmed:
+            return
+        if self._prearm_source:
+            GLib.source_remove(self._prearm_source)
+            self._prearm_source = 0
+        self._prearmed = False
+        if self._proc is not None:
+            self._proc.send_signal(signal.SIGTERM)
+            self._proc.wait_async(None, self._reap)
+            self._proc = None
+        try:
+            os.unlink(self._wav)
+        except OSError:
+            pass
+
+    def start(self):
+        if self.state in (RECORDING, SENDING):
+            return
+        if self.mic_muted:
+            # Recording would be silence, and the request would still be paid
+            # for. Say so instead; it clears itself when the mic comes back.
+            self.cancel_prearm()
+            self._set_state(ERROR, MUTED_MESSAGE)
+            return
+        # Keep a pre-armed recorder rather than restarting it: the audio it
+        # has already captured is exactly the part that would be lost.
+        if self._prearm_source:
+            GLib.source_remove(self._prearm_source)
+            self._prearm_source = 0
+        self._prearmed = False
+        self._clear_timers()
+        if self._proc is None and not self._spawn():
+            return
+        # Remember where the words are meant to go before anything else can
+        # take focus; nothing is typed later unless this is still active.
+        self._target = self.typist.active_window()
         self._started = time.monotonic()
         self.recording_since = self._started
         self.progress = 0.0
@@ -492,6 +591,7 @@ class Talflow(GObject.Object):
 
     def shutdown(self):
         self._clear_timers()
+        self.cancel_prearm()
         if self._proc is not None:
             self._proc.send_signal(signal.SIGTERM)
             self._proc = None

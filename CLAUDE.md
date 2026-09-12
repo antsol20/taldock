@@ -132,6 +132,18 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   down, seen from the other side -- there we avoid taking such a grab, here we
   are the victim of one.
 
+- **`PA_SUBSCRIPTION_MASK_SERVER` is `0x0080`, not `0x0100`.** `0x0100` is
+  the deprecated AUTOLOAD bit, and passing it made `pa_context_subscribe`
+  reject the mask outright -- so **no** subscription events arrived at all,
+  for sinks or sources. The bug hid for a long time because every setter in
+  `pulse.py` updates its own cache and emits `changed` before calling
+  libpulse, so anything done through the dock's own mixer looked perfectly
+  live; only changes made elsewhere (pavucontrol, `wpctl`, a headset button,
+  the hardware mic-mute key) were invisible. It surfaced only when talflow
+  needed to know the microphone had been muted by something else. Verify a
+  change of this kind against an external tool, never against the dock's own
+  controls.
+
 - **`hotkey.py` must pin the GTK version itself.** It calls
   `Gtk.accelerator_parse`, which returns two values under GTK 3 and three
   under GTK 4. Inside the dock the pin in `dock.py` has already happened, so
@@ -284,6 +296,34 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   a burst of taps. And the combination has to be grabbed once for every
   state the lock modifiers can be in, or it silently stops working with Num
   Lock on.
+
+- **Dictation starts recording on the modifiers, not on the shortcut's key.**
+  PipeWire takes ~130ms from spawn to a capture stream actually delivering
+  audio (measured: 131ms median through the dock, 123ms for a bare
+  `pw-record`, so almost none of it is ours; ~75ms of that is the capture
+  device resuming, since WirePlumber suspends it after about 5s idle). That
+  is enough to clip the first syllable. `hotkey.py` therefore watches the
+  modifier state and emits `armed` as soon as the chord's modifiers are all
+  down; a hand-typed chord puts its last key 80-200ms later, which covers the
+  gap, and the pre-roll audio is kept rather than trimmed -- a fraction of a
+  second of room tone in front of the first word costs nothing.
+  **Use XKB, not XInput2, to watch this.** XI2 raw key events would hand the
+  dock every keycode typed anywhere on the desktop; `XkbSelectEventDetails`
+  limited to `XkbModifierStateMask` reports the modifier mask and nothing
+  else, which is exactly the question being asked. A pre-armed recorder is
+  killed and its file discarded after `PREARM_MAX_MS`, so holding those
+  modifiers for another shortcut entirely (Ctrl+Alt+Left switches workspace
+  here) cannot leave the microphone open.
+
+- **A muted microphone is refused, not recorded.** Holding the shortcut with
+  the input muted would capture silence, pay for a request and come back
+  "nothing heard" -- which is indistinguishable from the model mishearing.
+  `Talflow.mic_muted` is deliberately `pulse.available and pulse.mic_mute`
+  rather than `not pulse.mic_live`: the latter is also false when there is no
+  sound server at all, and refusing then would be wrong, because `pw-record`
+  talks to PipeWire directly and may work fine. The icon carries a struck
+  through amber microphone whenever the condition holds, so it is visible
+  before the key is pressed rather than only after nothing happens.
 
 - **A transcript is typed, never pasted, and never into the wrong window.**
   Alacritty 0.16 binds paste to Ctrl+Shift+V and leaves Ctrl+V unbound, so a

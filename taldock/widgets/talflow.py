@@ -36,7 +36,7 @@ LOOK = {
 
 class TalflowItem(PanelItem):
     def setup(self):
-        self.flow = tf.Talflow()
+        self.flow = tf.Talflow(pulse=self.dock.pulse)
         self.flow.connect("state-changed", self._on_state)
         self._anim = 0
 
@@ -85,6 +85,25 @@ class TalflowItem(PanelItem):
         cr.move_to(cx, cy + 4.2 * s)
         cr.line_to(cx, cy + 6.3 * s)
         cr.stroke()
+
+    def _slash(self, cr, cx, cy, s, colour):
+        """A stroke through the glyph: the input is muted.
+
+        Same language as the speaker's mute cross in the audio widget, and
+        the same `warn` colour rather than a dim one -- a muted microphone is
+        the answer to "why did nothing happen", so it should stand out at the
+        moment it is being looked for, not recede.
+        """
+        # Thin: a heavier stroke reads as a slash with a smudge behind it
+        # rather than as a crossed-out microphone, because the backing needed
+        # to separate the two erases most of the capsule.
+        for width, col in ((2.4 * s, self.theme["bg"]), (1.25 * s, colour)):
+            rgba(cr, col, 1.0)
+            cr.set_line_width(width)
+            cr.set_line_cap(1)
+            cr.move_to(cx - 5.6 * s, cy + 6.2 * s)
+            cr.line_to(cx + 5.6 * s, cy - 6.2 * s)
+            cr.stroke()
 
     def _badge(self, cr, cx, cy, s, kind, colour):
         """A small mark top-right, ringed in bar colour so it stays legible."""
@@ -135,6 +154,12 @@ class TalflowItem(PanelItem):
         colour = self.theme[key]
         if state == tf.IDLE and not self.flow.ready:
             colour = self.theme["fg_dim"]   # not armed: nothing will happen
+        # A muted input outranks both, because it is the one condition where
+        # holding the shortcut looks like it worked and produces nothing.
+        muted = self.flow.mic_muted and state in (tf.IDLE, tf.ERROR)
+        if muted:
+            colour = self.theme["warn"]
+            badge = None
         cx, cy = w / 2, h / 2
         s = ICON / 17.0
 
@@ -156,13 +181,18 @@ class TalflowItem(PanelItem):
             cr.stroke()
 
         self._microphone(cr, cx, cy, s, colour)
-        if badge:
+        if muted:
+            self._slash(cr, cx, cy, s, colour)
+        elif badge:
             self._badge(cr, cx, cy, s, badge, colour)
 
     # -- text --------------------------------------------------------------
     def tooltip(self):
         flow = self.flow
         shortcut = flow.describe_shortcut()
+        if flow.mic_muted and flow.state in (tf.IDLE, tf.ERROR):
+            return ("Microphone is muted   ·   dictation would record nothing"
+                    "   ·   click the speaker to unmute")
         if flow.state == tf.RECORDING:
             return f"Recording…   ·   release {shortcut} to transcribe"
         if flow.state == tf.SENDING:

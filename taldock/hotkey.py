@@ -35,6 +35,15 @@ from gi.repository import GLib, GObject, Gtk  # noqa: E402
 
 KEY_PRESS = 2
 KEY_RELEASE = 3
+
+# XKB, used only to watch the modifier state. Deliberately not XInput2 raw
+# events: those would hand the dock every keycode typed anywhere on the
+# desktop, which is far more than "are the shortcut's modifiers down". An
+# XkbStateNotify limited to XkbModifierStateMask reports the modifier mask
+# and nothing else.
+XKB_USE_CORE_KBD = 0x0100
+XKB_STATE_NOTIFY = 2
+XKB_MODIFIER_STATE_MASK = 1 << 0
 GRAB_MODE_ASYNC = 1
 BAD_ACCESS = 10
 
@@ -59,9 +68,19 @@ class XKeyEvent(C.Structure):
                 ("state", C.c_uint), ("keycode", C.c_uint), ("same_screen", C.c_int)]
 
 
+class XkbStateNotifyEvent(C.Structure):
+    """Truncated after `mods`; the later fields are never read."""
+    _fields_ = [("type", C.c_int), ("serial", C.c_ulong), ("send_event", C.c_int),
+                ("display", C.c_void_p), ("time", C.c_ulong), ("xkb_type", C.c_int),
+                ("device", C.c_int), ("changed", C.c_uint), ("group", C.c_int),
+                ("base_group", C.c_int), ("latched_group", C.c_int),
+                ("locked_group", C.c_int), ("mods", C.c_uint)]
+
+
 class XEvent(C.Union):
-    # An XEvent is 24 longs; only the key fields are ever read.
-    _fields_ = [("type", C.c_int), ("key", XKeyEvent), ("pad", C.c_long * 24)]
+    # An XEvent is 24 longs; only the key and xkb fields are ever read.
+    _fields_ = [("type", C.c_int), ("key", XKeyEvent),
+                ("xkb", XkbStateNotifyEvent), ("pad", C.c_long * 24)]
 
 
 class XErrorEvent(C.Structure):
@@ -113,6 +132,10 @@ class HotkeyGrabber(GObject.Object):
     __gsignals__ = {
         "pressed": (GObject.SignalFlags.RUN_LAST, None, ()),
         "released": (GObject.SignalFlags.RUN_LAST, None, ()),
+        # The shortcut's modifiers are now all held, but its key is not yet
+        # down -- the window in which to get a recorder running.
+        "armed": (GObject.SignalFlags.RUN_LAST, None, ()),
+        "disarmed": (GObject.SignalFlags.RUN_LAST, None, ()),
     }
 
     def __init__(self, accel):
@@ -124,7 +147,10 @@ class HotkeyGrabber(GObject.Object):
         self._watch = 0
         self._keycode = 0
         self._masks = ()
+        self._base_mask = 0
         self._down = False
+        self._armed = False
+        self._xkb_event_base = None
         self._open()
         if self._lib is not None:
             self.bind(accel)
@@ -161,6 +187,11 @@ class HotkeyGrabber(GObject.Object):
         lib.XkbSetDetectableAutoRepeat.restype = C.c_int
         lib.XkbSetDetectableAutoRepeat.argtypes = [C.c_void_p, C.c_int,
                                                    C.POINTER(C.c_int)]
+        lib.XkbQueryExtension.restype = C.c_int
+        lib.XkbQueryExtension.argtypes = [C.c_void_p] + [C.POINTER(C.c_int)] * 5
+        lib.XkbSelectEventDetails.restype = C.c_int
+        lib.XkbSelectEventDetails.argtypes = [C.c_void_p, C.c_uint, C.c_uint,
+                                              C.c_ulong, C.c_ulong]
         display = lib.XOpenDisplay(None)
         if not display:
             self.error = "no X display"
@@ -177,9 +208,30 @@ class HotkeyGrabber(GObject.Object):
             # long hold indistinguishable from a rapid series of taps.
             self.error = "detectable autorepeat unsupported"
 
+        self._watch_modifiers()
         self._watch = GLib.io_add_watch(
             GLib.IOChannel.unix_new(lib.XConnectionNumber(display)),
             GLib.PRIORITY_DEFAULT, GLib.IOCondition.IN, self._on_readable)
+
+    def _watch_modifiers(self):
+        """Ask for modifier-state changes, so we can see the chord coming.
+
+        This is what lets the recorder be started while the user is still
+        reaching for the last key: the modifiers of a hand-typed chord land
+        roughly 80-200ms before it, which is more than the ~130ms PipeWire
+        needs to have a capture stream delivering audio.
+        """
+        lib = self._lib
+        opcode, event_base, error_base = C.c_int(), C.c_int(), C.c_int()
+        major, minor = C.c_int(1), C.c_int(0)
+        if not lib.XkbQueryExtension(self._display, C.byref(opcode),
+                                     C.byref(event_base), C.byref(error_base),
+                                     C.byref(major), C.byref(minor)):
+            return                      # no XKB: pre-arming is simply off
+        if lib.XkbSelectEventDetails(self._display, XKB_USE_CORE_KBD,
+                                     XKB_STATE_NOTIFY, XKB_MODIFIER_STATE_MASK,
+                                     XKB_MODIFIER_STATE_MASK):
+            self._xkb_event_base = event_base.value
 
     def _modifier_mask_for(self, keysym_name):
         """Which of Mod1..Mod5 carries a given modifier keysym, if any."""
@@ -259,6 +311,7 @@ class HotkeyGrabber(GObject.Object):
         self.accel = accel
         self._keycode = keycode
         self._masks = tuple(masks)
+        self._base_mask = mask
         self.error = None
         return True
 
@@ -273,17 +326,35 @@ class HotkeyGrabber(GObject.Object):
         self.unbind_masks(self._keycode, self._masks)
         self._keycode = 0
         self._masks = ()
+        self._base_mask = 0
         self._down = False
+        self._armed = False
+        self._xkb_event_base = None
 
     @property
     def ok(self):
         return self._lib is not None and self._keycode != 0
 
     # -- events ------------------------------------------------------------
+    def _on_modifiers(self, mods):
+        """Track whether every modifier of the shortcut is currently held."""
+        if not self._base_mask or self._down:
+            return
+        armed = (mods & self._base_mask) == self._base_mask
+        if armed == self._armed:
+            return
+        self._armed = armed
+        self.emit("armed" if armed else "disarmed")
+
     def _on_readable(self, *_a):
         event = XEvent()
         while self._lib.XPending(self._display):
             self._lib.XNextEvent(self._display, C.byref(event))
+            if (self._xkb_event_base is not None
+                    and event.type == self._xkb_event_base):
+                if event.xkb.xkb_type == XKB_STATE_NOTIFY:
+                    self._on_modifiers(event.xkb.mods)
+                continue
             if event.key.keycode != self._keycode:
                 continue
             if event.type == KEY_PRESS:
@@ -297,6 +368,10 @@ class HotkeyGrabber(GObject.Object):
                     self._down = False
                     self.emit("released")
         return True
+
+    @property
+    def armed(self):
+        return self._armed
 
     def shutdown(self):
         if self._watch:
