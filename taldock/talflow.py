@@ -73,7 +73,11 @@ PROVIDERS = {
 }
 
 DEFAULTS = {
-    "shortcut": "<Primary><Super>space",
+    # Deliberately not a Super chord: XFCE binds bare Super_L to the
+    # applications menu, and that passive grab swallows anything typed while
+    # Super is held unless another modifier went down first. See
+    # bare_modifier_conflicts() for the full story.
+    "shortcut": "<Primary><Alt>space",
     "provider": "openrouter",
     "endpoint": "",              # blank: use the provider's own URL
     "model": "nvidia/parakeet-tdt-0.6b-v3",
@@ -89,6 +93,52 @@ DEFAULTS = {
 #: Consulted only when `api_key` is blank, so the key can live in the
 #: environment during setup and move into the file later.
 KEY_ENV = "TALFLOW_OPENROUTER_KEY"
+
+#: Which physical keys carry each modifier, for the bare-shortcut check below.
+MODIFIER_KEYSYMS = {
+    "<Super>": ("Super_L", "Super_R"),
+    "<Hyper>": ("Hyper_L", "Hyper_R"),
+    "<Alt>": ("Alt_L", "Alt_R"),
+    "<Meta>": ("Meta_L", "Meta_R"),
+    "<Primary>": ("Control_L", "Control_R"),
+    "<Control>": ("Control_L", "Control_R"),
+    "<Shift>": ("Shift_L", "Shift_R"),
+}
+
+
+def bare_modifier_conflicts(accel):
+    """Modifiers in `accel` that XFCE also binds as shortcuts on their own.
+
+    This is the failure that cost an afternoon. XFCE implements a bare-modifier
+    shortcut (`/commands/custom/Super_L`, which is how the applications menu
+    opens) as a passive grab on that key with an empty modifier mask. Press it
+    with nothing else held and the grab activates, and xfsettingsd owns the
+    keyboard until the key comes back up -- so every later key in the chord,
+    including ours, goes to xfsettingsd and never reaches our own passive grab.
+
+    The tell is that it is *order dependent* and therefore looks intermittent:
+    press Ctrl before Super and the mask no longer matches an empty one, the
+    bare grab never activates, and Ctrl+Super+Space works perfectly. Press
+    Super first and nothing happens at all, with no error anywhere. Measured
+    here: 2/2 with Ctrl first, 0/2 with Super first, and 2/2 both ways once the
+    bare Super binding was removed.
+    """
+    import subprocess
+    hit = []
+    for token, keysyms in MODIFIER_KEYSYMS.items():
+        if token not in accel:
+            continue
+        for keysym in keysyms:
+            try:
+                done = subprocess.run(
+                    ["xfconf-query", "-c", "xfce4-keyboard-shortcuts",
+                     "-p", f"/commands/custom/{keysym}"],
+                    capture_output=True, text=True, timeout=3)
+            except (OSError, subprocess.SubprocessError):
+                return []          # no xfconf: nothing to say either way
+            if done.returncode == 0 and done.stdout.strip():
+                hit.append(keysym)
+    return hit
 
 
 class Settings(dict):
@@ -237,13 +287,28 @@ class Talflow(GObject.Object):
             GLib.get_user_runtime_dir() or f"/run/user/{os.getuid()}",
             "taldock", "talflow.wav")
 
+        self.warning = ""
         self.hotkey = HotkeyGrabber(self.settings["shortcut"])
         self.hotkey.connect("pressed", lambda *_a: self.start())
         self.hotkey.connect("released", lambda *_a: self.stop())
+        self._check_shortcut()
         if not self.typist.ok:
             self._fail(self.typist.error or "no X connection for typing")
         elif self.hotkey.error:
             self._fail(self.hotkey.error)
+
+    def _check_shortcut(self):
+        """Warn about a shortcut that will work only in one press order."""
+        self.warning = ""
+        if not self.hotkey.ok:
+            return
+        clashes = bare_modifier_conflicts(self.settings["shortcut"])
+        if clashes:
+            name = clashes[0].split("_")[0]
+            self.warning = (
+                f"{name} is also a shortcut on its own, so this only works if "
+                f"you press the other keys first")
+            print(f"talflow: {self.warning} ({self.settings['shortcut']})")
 
     # -- state -------------------------------------------------------------
     def _set_state(self, state, message=""):
@@ -414,6 +479,7 @@ class Talflow(GObject.Object):
         if not self.hotkey.bind(self.settings["shortcut"]):
             self._fail(self.hotkey.error or "could not bind shortcut")
             return False
+        self._check_shortcut()
         self._set_state(IDLE, "settings reloaded")
         return True
 

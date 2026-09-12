@@ -115,6 +115,23 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   keycode (18 are free on this machine), bound before any of them is typed
   and released only once the whole transcript has drained.
 
+- **A chord containing Super is order-dependent on XFCE, and fails
+  silently.** XFCE implements its bare-modifier shortcut
+  (`/commands/custom/Super_L`, the applications menu) as a passive grab on
+  Super with an *empty* modifier mask. Pressing Super with nothing else held
+  activates it, and xfsettingsd then owns the keyboard until Super comes back
+  up -- so the rest of the chord never reaches our own passive grab. Press
+  Ctrl first and the mask no longer matches empty, the bare grab never fires,
+  and the same chord works every time. That order dependence is the whole
+  diagnostic difficulty: it presents as "worked once, then never again", with
+  nothing in any log. Measured: 2/2 Ctrl-first, 0/2 Super-first, 4/4 either
+  way with the bare Super binding temporarily removed. talflow's default
+  shortcut is therefore `<Primary><Alt>space`, and
+  `talflow.bare_modifier_conflicts()` warns in the popup if a configured one
+  has the problem. Note this is the *same* trap as the Super-key note further
+  down, seen from the other side -- there we avoid taking such a grab, here we
+  are the victim of one.
+
 - **`hotkey.py` must pin the GTK version itself.** It calls
   `Gtk.accelerator_parse`, which returns two values under GTK 3 and three
   under GTK 4. Inside the dock the pin in `dock.py` has already happened, so
@@ -403,7 +420,8 @@ that works:
   creates itself, so it cannot leak keystrokes into the user's session. Six
   cases including characters outside the layout.
 - `tools/talflow_selftest.py` — the whole dictation pipeline: a real XTest
-  hold of the shortcut, a real recording, a real transcription round trip,
+  hold of the shortcut (Ctrl+Alt+Space by default), a real recording, a real
+  transcription round trip,
   and both delivery paths (typed / parked on the clipboard). It needs the
   dock's own talflow widget stopped, because only one X client can hold a
   given passive grab -- the second gets BadAccess, which the grabber reports

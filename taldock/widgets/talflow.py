@@ -179,6 +179,8 @@ class TalflowItem(PanelItem):
             # Usually "nothing heard", which is what a muted microphone
             # looks like from here.
             return f"{flow.message.capitalize()}   ·   hold {shortcut}"
+        if flow.warning:
+            return f"Dictation   ·   hold {shortcut}   ·   {flow.warning}"
         return f"Dictation   ·   hold {shortcut}"
 
     # -- input -------------------------------------------------------------
@@ -253,6 +255,13 @@ class TalflowItem(PanelItem):
             row.pack_start(label(name, "td-dim"), False, False, 0)
             row.pack_end(label(value, xalign=1.0), True, True, 0)
             pop.content.pack_start(row, False, False, 0)
+
+        if flow.warning:
+            note = label(flow.warning, "td-dim", ellipsize=False)
+            note.set_line_wrap(True)
+            note.set_max_width_chars(38)
+            note.set_margin_top(4)
+            pop.content.pack_start(note, False, False, 0)
 
         def sync(*_a):
             state_label.set_text({

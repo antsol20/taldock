@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end check of the talflow pipeline, in a window this tool owns.
 
-    tools/talflow_selftest.py [--shortcut '<Primary><Super>space']
+    tools/talflow_selftest.py [--shortcut '<Primary><Alt>space']
 
 It creates its own focused text view and types into that, so it can never
 leak a transcript into whatever the user is doing. Four things are checked:
@@ -33,7 +33,7 @@ from gi.repository import Gdk, GLib, Gtk              # noqa: E402
 
 from taldock import talflow as tf                     # noqa: E402
 
-SHORTCUT = "<Primary><Super>space"
+SHORTCUT = None          # default: whatever the config file says
 for index, arg in enumerate(sys.argv):
     if arg == "--shortcut" and index + 1 < len(sys.argv):
         SHORTCUT = sys.argv[index + 1]
@@ -55,7 +55,17 @@ def code(name):
     return x11.XKeysymToKeycode(display, x11.XStringToKeysym(name.encode()))
 
 
-CHORD = [code("Control_L"), code("Super_L"), code("space")]
+def chord_keycodes(accel):
+    """Modifier keycodes for `accel`, then its own key, in press order."""
+    keys = []
+    for token, keysym in (("<Primary>", "Control_L"), ("<Control>", "Control_L"),
+                          ("<Shift>", "Shift_L"), ("<Alt>", "Alt_L"),
+                          ("<Super>", "Super_L")):
+        if token in accel and code(keysym) not in keys:
+            keys.append(code(keysym))
+    main = accel.rsplit(">", 1)[-1] or accel
+    return keys + [code(main)]
+
 
 
 def chord(down):
@@ -65,7 +75,10 @@ def chord(down):
 
 
 settings = tf.Settings()
-settings["shortcut"] = SHORTCUT
+if SHORTCUT:
+    settings["shortcut"] = SHORTCUT
+SHORTCUT = settings["shortcut"]
+CHORD = chord_keycodes(SHORTCUT)
 flow = tf.Talflow(settings=settings)
 if not flow.hotkey.ok:
     sys.exit(f"talflow_selftest: cannot grab {SHORTCUT}: {flow.hotkey.error}\n"

@@ -92,7 +92,7 @@ cat <<EOF
 
   Dictation (talflow): put an API key in
       ${XDG_CONFIG_HOME:-$HOME/.config}/taldock/talflow.json
-  then hold Ctrl+Super+Space and speak. The shortcut is grabbed directly,
+  then hold Ctrl+Alt+Space and speak. The shortcut is grabbed directly,
   so there is no binding step -- but it cannot be shared with another
   application that already holds it.
 

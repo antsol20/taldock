@@ -46,7 +46,7 @@ panel, in one process.
 - Clock with a calendar popup
 
 **Dictation — talflow (status area)**
-- Hold **Ctrl+Super+Space**, speak, let go: the words are typed into
+- Hold **Ctrl+Alt+Space**, speak, let go: the words are typed into
   whatever had focus
 - The icon is the whole readout — idle, recording, transcribing, typed,
   parked on the clipboard, failed
@@ -115,7 +115,7 @@ rm -rf ~/.local/share/taldock
 | Scroll volume icon | Adjust volume (Shift for fine steps) |
 | Middle-click volume | Mute |
 | **Volume keys** | Adjust volume, mute, mute the microphone |
-| **Ctrl+Super+Space** (hold) | Dictate: records while held, types the transcript on release |
+| **Ctrl+Alt+Space** (hold) | Dictate: records while held, types the transcript on release |
 | Click the microphone | Last transcript, model, input device, shortcut |
 
 ### In the applications menu
@@ -150,7 +150,7 @@ instead of the ~300 ms a full interpreter start would.
 
 ### Dictation
 
-Hold **Ctrl+Super+Space**, say something, let go. The recording stops on
+Hold **Ctrl+Alt+Space**, say something, let go. The recording stops on
 release, goes to a speech-to-text endpoint, and the text is typed into the
 window that was focused when you started. A press shorter than a quarter of
 a second is treated as a fumble and thrown away rather than sent.
@@ -171,7 +171,7 @@ first run with mode 0600:
 
 ```json
 {
-  "shortcut": "<Primary><Super>space",
+  "shortcut": "<Primary><Alt>space",
   "provider": "openrouter",
   "model": "nvidia/parakeet-tdt-0.6b-v3",
   "language": "en",
@@ -268,7 +268,7 @@ a launcher.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `shortcut` | `"<Primary><Super>space"` | Hold-to-talk combination, in Gtk accelerator syntax |
+| `shortcut` | `"<Primary><Alt>space"` | Hold-to-talk combination, in Gtk accelerator syntax |
 | `provider` | `"openrouter"` | `openrouter` (any OpenAI-compatible endpoint) or `elevenlabs` |
 | `endpoint` | `""` | Overrides the provider's own URL |
 | `model` | `"nvidia/parakeet-tdt-0.6b-v3"` | Sent as the `model` field |
@@ -348,6 +348,26 @@ into the connection profile itself, and NetworkManager stores it, so no
 secret agent has to be running. Enterprise (802.1X), WEP and hidden networks
 ask for more than a passphrase box can, and still open
 `nm-connection-editor`.
+
+**Dictation does nothing, or only sometimes.** If the shortcut contains
+**Super**, that is almost certainly why. XFCE implements a bare-modifier
+shortcut — `/commands/custom/Super_L`, which is how the applications menu
+opens — as a passive X grab on Super with an *empty* modifier mask. Press
+Super with nothing else held and that grab activates, and xfsettingsd owns
+the keyboard until you let go, so the rest of your chord never reaches
+taldock. It is therefore order-dependent, which makes it look intermittent:
+pressing Ctrl first means the modifier state is no longer empty, the bare
+grab does not match, and the shortcut works perfectly. Measured on the
+machine this was found on: 2/2 with Ctrl first, 0/2 with Super first, 4/4
+either way once the bare Super binding was removed.
+
+The default shortcut avoids Super entirely for this reason. taldock also
+checks at startup and puts a note in the microphone's popup if your chosen
+shortcut has this problem. To see what is bound bare:
+
+```sh
+xfconf-query -c xfce4-keyboard-shortcuts -l -v | grep -E '/(Super|Alt|Control|Shift)_[LR] '
+```
 
 **The system tray stays empty.** Something else has claimed the
 StatusNotifier name. Check who owns it:
