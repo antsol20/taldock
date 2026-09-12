@@ -338,15 +338,21 @@ python3 tools/check_layout_continuity.py    # magnification regression check
 python3 tools/type_selftest.py              # synthetic typing round trip
 python3 tools/talflow_selftest.py           # dictation pipeline, end to end
 python3 tools/talflow_states.py out.png     # every dictation icon state
-python3 tools/talflow_models.py --record 40 sample.wav \
+python3 tools/talflow_models.py --record sample.wav \
     --expect-file tools/dictation-sample.txt    # compare transcription models
 ```
 
-`talflow_models.py` records a sample, sends it to every transcription model
-OpenRouter offers, and reports word error rate, latency and what each one
-actually charged. Worth re-running when picking a model: the right choice
-depends on your voice, your microphone and your vocabulary, not on a
-leaderboard. It costs about a penny a run.
+`talflow_models.py` records you reading `tools/dictation-sample.txt`, sends
+it to every transcription model OpenRouter offers, and reports word error
+rate, character error rate (which, unlike WER, counts punctuation and
+capitalisation — half of what makes a dictated transcript usable), latency
+and what each model actually charged. Worth re-running when picking a model:
+the right choice depends on your voice, your microphone and your vocabulary,
+not on a leaderboard. A run costs a few pence.
+
+Also test near-silence, by recording a couple of seconds of nothing: a
+fumbled press captures room tone, and models differ wildly in what they
+invent from it.
 
 `type_selftest.py` and `talflow_selftest.py` create the window they type
 into, so they cannot leak synthetic keystrokes into whatever you are doing.

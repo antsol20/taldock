@@ -484,7 +484,15 @@ that works:
   scores 0.0% WER on all fourteen working models, so it separates nothing but
   latency; `tools/dictation-sample.txt` exists because a useful comparison
   needs this machine's microphone, this user's voice and the vocabulary
-  actually dictated (product names, `xfconf`, hex numbers read aloud).
+  actually dictated (product names, `xfconf`, tool names).
+  **Test near-silence too, and weight it heavily.** A fumbled press records
+  room tone, and on 4.9s of RMS-0 silence the models diverge completely:
+  parakeet, both whispers, gpt-transcribe, gpt-4o-mini-transcribe, nova-3,
+  voxtral-mini, chirp-3 and mai-transcribe-2 all correctly returned an empty
+  string, while gpt-4o-transcribe produced Mandarin, voxtral-small invented a
+  paragraph about films, qwen3-asr-flash offered "I think it's a good idea."
+  and fish-audio emitted "no," roughly four hundred times. A model that
+  hallucinates on silence will type that into whatever you were focused on.
 - `tools/cap.py` — screen capture via `Gdk.pixbuf_get_from_window`. **Use
   this, not `xfce4-screenshooter`**: the screenshooter perturbs the pointer,
   so hover and magnification collapse before the frame is taken.

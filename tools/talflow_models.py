@@ -49,11 +49,7 @@ def normalise(text):
     return re.sub(r"[^a-z0-9' ]", " ", text.lower()).split()
 
 
-def word_error_rate(reference, hypothesis):
-    """Levenshtein distance over words, divided by reference length."""
-    ref, hyp = normalise(reference), normalise(hypothesis)
-    if not ref:
-        return None
+def _distance(ref, hyp):
     previous = list(range(len(hyp) + 1))
     for i, r in enumerate(ref, 1):
         current = [i]
@@ -61,32 +57,70 @@ def word_error_rate(reference, hypothesis):
             current.append(min(previous[j] + 1, current[j - 1] + 1,
                                previous[j - 1] + (r != h)))
         previous = current
-    return previous[-1] / len(ref)
+    return previous[-1]
 
 
-def record(path, seconds):
+def char_error_rate(reference, hypothesis):
+    """Levenshtein over characters, keeping case and punctuation.
+
+    WER deliberately throws both away, but a transcript that is typed
+    straight into an editor lives or dies by them.
+    """
+    ref = " ".join(reference.split())
+    hyp = " ".join((hypothesis or "").split())
+    if not ref:
+        return None
+    return _distance(ref, hyp) / len(ref)
+
+
+def word_error_rate(reference, hypothesis):
+    """Levenshtein distance over words, divided by reference length."""
+    ref, hyp = normalise(reference), normalise(hypothesis)
+    if not ref:
+        return None
+    return _distance(ref, hyp) / len(ref)
+
+
+def record(path, seconds=None):
     """Capture a sample the same way talflow does, so it is representative."""
-    import subprocess, signal
-    print(f"Recording {seconds:.0f}s from the default microphone.")
+    import array
+    import math
+    import signal
+    import subprocess
+
     for count in (3, 2, 1):
-        print(f"  {count}...", end="", flush=True)
+        print(f"  starting in {count}...", end="\r", flush=True)
         time.sleep(1)
-    print("  SPEAK NOW")
+    print("  RECORDING -- read the passage aloud." + " " * 20)
     proc = subprocess.Popen(
         ["pw-record", "--rate=16000", "--channels=1", "--format=s16", path],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(seconds)
-    proc.send_signal(signal.SIGINT if False else signal.SIGTERM)
+    if seconds:
+        time.sleep(seconds)
+    else:
+        input("  press Enter when you have finished reading...")
+    proc.send_signal(signal.SIGTERM)
     proc.wait()
-    print(f"  saved {path}\n")
+    with wave.open(path) as handle:
+        frames = handle.readframes(handle.getnframes())
+        rate = handle.getframerate()
+    samples = array.array("h")
+    samples.frombytes(frames)
+    level = math.sqrt(sum(v * v for v in samples) / len(samples)) if samples else 0
+    print(f"  saved {path}: {len(samples)/rate:.1f}s, RMS {level:.0f}")
+    if level < 60:
+        print("  WARNING: that is near-silence. Is the microphone muted?")
+    print()
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("audio", nargs="?",
                         help="a WAV to test; omit with --record")
-    parser.add_argument("--record", type=float, default=None, metavar="SECONDS",
-                        help="record from the default microphone first")
+    parser.add_argument("--record", action="store_true",
+                        help="record from the default microphone, until Enter")
+    parser.add_argument("--seconds", type=float, default=None,
+                        help="with --record, stop after this long instead")
     parser.add_argument("--expect", default=None,
                         help="reference transcript, to score accuracy")
     parser.add_argument("--expect-file", default=None,
@@ -97,7 +131,7 @@ def main():
     models = args.models.split(",") if args.models else CANDIDATES
     if args.record:
         args.audio = args.audio or "talflow-sample.wav"
-        record(args.audio, args.record)
+        record(args.audio, args.seconds)
     if not args.audio:
         sys.exit("talflow_models: give a WAV, or --record SECONDS")
     if args.expect_file:
@@ -118,26 +152,28 @@ def main():
         elapsed = time.monotonic() - started
         if error:
             print(f"  {model:42} FAILED  {error[:70]}")
-            rows.append((model, None, elapsed, None, error, 0.0))
+            rows.append((model, None, elapsed, None, error, 0.0, None))
             continue
         wer = word_error_rate(args.expect, text) if args.expect else None
+        cer = char_error_rate(args.expect, text) if args.expect else None
         cost = float(usage.get("cost") or 0.0)
-        rows.append((model, text.strip(), elapsed, wer, None, cost))
-        score = f"WER {wer*100:5.1f}%" if wer is not None else "         "
-        print(f"  {model:42} {score}  {elapsed:5.2f}s  "
-              f"${cost:.6f}  (${cost/seconds*3600:6.2f}/hr of speech)")
+        rows.append((model, text.strip(), elapsed, wer, None, cost, cer))
+        score = (f"WER {wer*100:5.1f}%  CER {cer*100:5.1f}%"
+                 if wer is not None else " " * 24)
+        print(f"  {model:38} {score}  {elapsed:5.2f}s  "
+              f"${cost/seconds*3600:6.3f}/hr")
 
     print("\n--- transcripts ---")
-    for model, text, _e, _w, error, _c in rows:
+    for model, text, _e, _w, error, _c, _cer in rows:
         print(f"\n{model}\n  {error or text!r}")
 
     ok = [r for r in rows if r[1] is not None]
     if args.expect and ok:
         print("\n--- ranked by accuracy, then latency ---")
-        for model, _t, elapsed, wer, _e, cost in sorted(
+        for model, _t, elapsed, wer, _e, cost, cer in sorted(
                 ok, key=lambda r: (r[3] if r[3] is not None else 9, r[2])):
-            print(f"  {(wer or 0)*100:5.1f}%  {elapsed:5.2f}s  "
-                  f"${cost:.6f}  {model}")
+            print(f"  WER {(wer or 0)*100:5.1f}%  CER {(cer or 0)*100:5.1f}%  "
+                  f"{elapsed:5.2f}s  ${cost/seconds*3600:6.3f}/hr  {model}")
         print(f"\n  total spent on this run: "
               f"${sum(r[5] for r in rows):.4f}")
 

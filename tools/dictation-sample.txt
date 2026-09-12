@@ -1,8 +1,25 @@
-Right, let me check whether the passive grab is actually firing. The
-xfconf shortcut runs on key press only, so I moved it to XKB and now
-hotkey dot pie watches the modifier state instead. PipeWire needs about a
-hundred and thirty milliseconds before the capture stream delivers
-anything, which was clipping the first syllable. WirePlumber suspends the
-device after five seconds idle. I also fixed the subscription mask, which
-was nought x one hundred instead of nought x eighty. Test it in Alacritty
-and Thunar, then push it to the main branch.
+Right, let me talk through where this got to, because the interesting part
+was not the feature itself but the thing underneath it.
+
+The shortcut could not go through xfconf, because that mechanism runs a
+command on key press and says nothing at all about release, so it cannot
+express a hold. We grab the combination from the X server instead, and we
+ask for detectable autorepeat, otherwise a long hold is indistinguishable
+from a burst of taps.
+
+Then the first syllable kept getting clipped. PipeWire needs a while before
+the capture stream actually delivers anything, and WirePlumber suspends the
+device once it has been idle for a few seconds, so waking it costs even
+more. The fix was to start recording when the modifiers go down rather than
+when the space bar does, watching the modifier state through XKB rather than
+raw input events, because raw events would hand us every keycode typed
+anywhere on the desktop and we only need to know whether Control and Alt are
+held.
+
+While testing that, I found the subscription mask was wrong, which meant no
+events were arriving at all. It hid for ages because every setter updates
+its own cache first, so anything done through the dock looked perfectly
+live, and only changes made in another application were invisible.
+
+Try it in Alacritty, in Thunar, and in the browser. If the transcript lands
+in the wrong window, check whether the clipboard fallback fired instead.
