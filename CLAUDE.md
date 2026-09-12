@@ -357,6 +357,20 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   meaning-changing mishearings (`state` -> "site", `input` -> "import",
   `whether` -> "where the") rather than spacing. It is one take by one
   speaker: re-run `tools/talflow_models.py` before believing it elsewhere.
+  ElevenLabs Scribe v2 has since been measured too, and is competitive rather
+  than clearly better: 6.6% WER (best equal) but 4.7% CER (worse than
+  mai-transcribe-2's 4.0%), ~1.0s on an 8s clip, clean on silence, $0.22/hr
+  against mai's $0.101. Its response carries no cost field, so the benchmark
+  shows $0.000 for it -- read the price off the pricing page, not the tool.
+
+- **`no_verbatim` cannot be scored by the benchmark, and it is a trap to
+  try.** The option strips filler words and false starts, which only exist in
+  spontaneous speech; `tools/dictation-sample.txt` is a written passage read
+  aloud, so there is almost nothing for it to remove and no credit for
+  removing it. Measured anyway it looked *worse* (7.8% vs 6.6% WER), but that
+  was two unrelated mishearings, not the cleaning. Judge it by reading the
+  output of an unscripted recording, where there is no ground truth to score
+  against.
 
 - **talflow keeps its own config file because it holds an API key.**
   `~/.config/taldock/talflow.json`, written 0600. `config.json` is the file a
@@ -542,8 +556,6 @@ Run a throwaway config with `--config` rather than editing `~/.config/taldock`.
   to be routed through `Popup._on_key`; dictating into the dock's own menu is
   unlikely enough that it has not been worth the same treatment, which would
   additionally need key *release* delivered to the popup.
-- **The `elevenlabs` provider row is untested** -- written from Scribe's
-  documented shape, never run against the service.
 - **Wayland is unsupported** and would need a full rewrite (layer-shell).
 - Multi-monitor is implemented (`monitor` config key, `monitors-changed`
   handling) but has only been exercised on a single 1920×1080 display.

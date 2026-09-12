@@ -126,6 +126,14 @@ def main():
     parser.add_argument("--expect-file", default=None,
                         help="file holding the reference transcript")
     parser.add_argument("--models", default=None, help="comma-separated list")
+    parser.add_argument("--provider", default=None,
+                        help="override the provider, e.g. elevenlabs")
+    parser.add_argument("--api-key-file", default=None,
+                        help="read the API key from this file instead")
+    parser.add_argument("--extra", action="append", default=[], metavar="K=V",
+                        help="extra form field for the provider, repeatable")
+    parser.add_argument("--label", default=None,
+                        help="tag for this run, when comparing settings")
     args = parser.parse_args()
 
     models = args.models.split(",") if args.models else CANDIDATES
@@ -137,11 +145,22 @@ def main():
     if args.expect_file:
         args.expect = open(args.expect_file, encoding="utf-8").read()
     settings = Settings()
+    if args.provider:
+        settings["provider"] = args.provider
+    if args.api_key_file:
+        settings["api_key"] = open(args.api_key_file, encoding="utf-8").read().strip()
+    settings["extra"] = dict(
+        pair.split("=", 1) for pair in args.extra) if args.extra else {}
     if not settings.api_key:
         sys.exit("talflow_models: no API key configured")
     with wave.open(args.audio) as handle:
         seconds = handle.getnframes() / float(handle.getframerate())
-    print(f"{args.audio}: {seconds:.1f}s of audio, {len(models)} models\n")
+    tag = f" [{args.label}]" if args.label else ""
+    print(f"{args.audio}: {seconds:.1f}s of audio, {len(models)} models"
+          f" via {settings['provider']}{tag}")
+    if settings["extra"]:
+        print(f"  extra fields: {settings['extra']}")
+    print()
 
     rows = []
     for model in models:

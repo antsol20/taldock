@@ -68,7 +68,10 @@ PROVIDERS = {
         "model_field": "model",
         "language_field": "language",
     },
-    # Untested here -- no account -- but the shape is what Scribe documents.
+    # Scribe. Verified against the live API. Note it reports no cost in the
+    # response, unlike OpenRouter, so `usage` comes back with only its own
+    # fields. Provider-specific switches such as `no_verbatim` (drop filler
+    # words and false starts, scribe_v2 only) go in the `extra` setting.
     "elevenlabs": {
         "url": "https://api.elevenlabs.io/v1/speech-to-text",
         "auth_header": "xi-api-key",
@@ -93,6 +96,9 @@ DEFAULTS = {
     "model": "microsoft/mai-transcribe-2",
     "language": "en",
     "api_key": "",
+    # Extra form fields passed straight to the provider, for options only it
+    # understands -- ElevenLabs' {"no_verbatim": true}, say.
+    "extra": {},
     "min_seconds": 0.25,         # shorter than this is a fumble, not speech
     "max_seconds": 120.0,        # hard stop, so a stuck key cannot record for ever
     "request_timeout": 45.0,
@@ -236,6 +242,10 @@ def transcribe(audio_path, settings, usage=None):
     fields = {provider["model_field"]: settings["model"]}
     if settings.get("language"):
         fields[provider["language_field"]] = settings["language"]
+    for name, value in (settings.get("extra") or {}).items():
+        # multipart carries text, so JSON booleans have to be spelled out.
+        fields[name] = ("true" if value else "false") if isinstance(value, bool) \
+            else str(value)
 
     boundary = f"----talflow{uuid.uuid4().hex}"
     parts = []

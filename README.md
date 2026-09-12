@@ -286,6 +286,7 @@ a launcher.
 | --- | --- | --- |
 | `shortcut` | `"<Primary><Alt>space"` | Hold-to-talk combination, in Gtk accelerator syntax |
 | `provider` | `"openrouter"` | `openrouter` (any OpenAI-compatible endpoint) or `elevenlabs` |
+| `extra` | `{}` | Extra form fields for the provider, e.g. `{"no_verbatim": true}` |
 | `endpoint` | `""` | Overrides the provider's own URL |
 | `model` | `"microsoft/mai-transcribe-2"` | Sent as the `model` field |
 | `language` | `"en"` | Sent with the request; OpenRouter validates it |
@@ -296,6 +297,15 @@ a launcher.
 | `type_delay_ms` | `4` | Pause between batches of keystrokes |
 | `type_batch` | `6` | Keystrokes sent per main-loop tick |
 | `prewarm` | `true` | Start capturing on the modifiers, before the shortcut's key |
+
+To use ElevenLabs Scribe instead, set `provider` to `elevenlabs`, `model` to
+`scribe_v2`, and put an ElevenLabs key in `api_key`. Its `no_verbatim` option,
+which strips filler words and false starts, goes in `extra`:
+
+```json
+{ "provider": "elevenlabs", "model": "scribe_v2",
+  "extra": { "no_verbatim": true } }
+```
 
 The shortcut is grabbed from the X server directly rather than going through
 xfconf like the Super key, because an xfconf binding runs a command on key
