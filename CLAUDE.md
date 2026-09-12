@@ -226,6 +226,19 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   True)` hides instead of destroying, `Dock.prewarm_app_menu()` pays the cost
   at startup, and rows are filtered with `Gtk.ListBox` filter/sort funcs
   rather than being rebuilt.
+  **Because of that it has to be told when applications change.** `AppDatabase`
+  watches the applications directories and re-indexes, which keeps the
+  launchers and window matching current, but the menu's rows are built from
+  that index once -- so before `AppDatabase` grew its `changed` signal, an
+  application installed while the dock was running never appeared in the
+  menu until the next restart. Beware when diagnosing this: the `.desktop`
+  file's *mtime* is the package's build date and can be months old; `ctime`
+  (or `/var/log/dpkg.log`) is what says when it actually landed. The rebuild
+  is deliberately deferred while the menu is on screen -- `populate()` throws
+  every row away, which would drop a typed search mid-keystroke, and it costs
+  the ~300ms that prewarming exists to keep off the Super key. Note
+  `Popup.dismiss()` emits `dismissed` *before* it hides, so the rebuild goes
+  through an idle to land after the hide.
 - **The Super key goes through xfconf, not an X grab.** `XGrabKey` on
   `Super_L` activates an active grab for as long as the key is held, so every
   `Super`+key combo would stop reaching xfwm4. XFCE already binds a bare

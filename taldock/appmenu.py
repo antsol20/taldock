@@ -109,6 +109,9 @@ class AppMenuPopup(Popup):
         # entry (see _on_key), so this is our own notion, not GTK focus.
         self.pane = "apps"
         self._syncing_category = False
+        # Set when applications were installed or removed while we were on
+        # screen; the rows are rebuilt on the way out instead.
+        self._stale = False
 
         self.content.get_style_context().add_class("td-popup")
         cfg = dock.cfg
@@ -123,6 +126,7 @@ class AppMenuPopup(Popup):
 
         self._build_header()
         self._build_body()
+        self.connect("dismissed", lambda *_a: self._schedule_rebuild())
         # No connect() for key-press-event here: Popup.__init__ already
         # connected self._on_key, which resolves to the override below.
         # Connecting it again ran the handler twice for every keypress.
@@ -508,6 +512,32 @@ class AppMenuPopup(Popup):
         self.dismiss()
         if not launch_first([command]):
             print(f"taldock: session action unavailable: {' '.join(command)}")
+
+    # -- keeping up with installed applications ----------------------------
+    def refresh_apps(self):
+        """An application was installed or removed: the rows are out of date."""
+        self._stale = True
+        self._schedule_rebuild()
+
+    def _schedule_rebuild(self):
+        # dismiss() emits "dismissed" before it hides, so even on the way out
+        # we are still visible right now. An idle lands after the hide.
+        if self._stale:
+            GLib.idle_add(self._rebuild_if_hidden)
+
+    def _rebuild_if_hidden(self):
+        """Rebuild the rows, but never under the user's hands.
+
+        populate() throws every row away, so doing it while the menu is open
+        would drop a typed search and its selection mid-keystroke. It costs
+        ~300ms too, which is exactly what prewarming exists to keep off the
+        Super key -- so it waits for the menu to be closed.
+        """
+        if self.get_visible():
+            return GLib.SOURCE_REMOVE      # reopened; catch it on the next close
+        self.populate()
+        self._stale = False
+        return GLib.SOURCE_REMOVE
 
     # -- reuse -------------------------------------------------------------
     def prewarm(self):

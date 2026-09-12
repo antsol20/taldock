@@ -45,10 +45,17 @@ def _exec_binary(appinfo):
     return ""
 
 
-class AppDatabase:
+class AppDatabase(GObject.Object):
     """Index of installed .desktop files, queryable by window identity."""
 
+    # Emitted after the index is rebuilt because applications were installed
+    # or removed. The applications menu builds its rows once and keeps them,
+    # so it has to be told: without this a newly installed application never
+    # appeared in the menu until the dock was restarted.
+    __gsignals__ = {"changed": (GObject.SignalFlags.RUN_LAST, None, ())}
+
     def __init__(self):
+        super().__init__()
         self.by_id = {}        # "firefox.desktop" -> DesktopAppInfo
         self._by_wmclass = {}  # StartupWMClass (lowered) -> DesktopAppInfo
         self._by_stem = {}     # desktop id stem -> DesktopAppInfo
@@ -103,6 +110,7 @@ class AppDatabase:
     def _do_reload(self):
         self._reload_source = 0
         self.reload()
+        self.emit("changed")
         return GLib.SOURCE_REMOVE
 
     # -- querying ----------------------------------------------------------

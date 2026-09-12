@@ -59,6 +59,7 @@ class Dock:
 
         # -- services
         self.appdb = AppDatabase()
+        self.appdb.connect("changed", self._on_apps_changed)
         timing.mark("  AppDatabase")
         self.windows = WindowModel(self.appdb)
         timing.mark("  WindowModel (wnck force_update)")
@@ -679,6 +680,12 @@ class Dock:
             self._app_menu = AppMenuPopup(self)
             self._app_menu.connect("dismissed", self._on_app_menu_closed)
         return self._app_menu
+
+    def _on_apps_changed(self, *_a):
+        """An application was installed or removed."""
+        menu = getattr(self, "_app_menu", None)
+        if menu is not None:
+            menu.refresh_apps()
 
     def prewarm_app_menu(self):
         """Pay the menu's build cost at startup, not on the first Super press."""
