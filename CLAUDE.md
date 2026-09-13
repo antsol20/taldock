@@ -372,6 +372,27 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   output of an unscripted recording, where there is no ground truth to score
   against.
 
+- **The dock's stdout was `/dev/null`, so talflow's errors went nowhere.**
+  xfce4-session starts clients with stdout discarded and only stderr on
+  `~/.xsession-errors`. Two 429s were lost that way, bodies and all.
+  `__main__._keep_stdout()` now points a discarded stdout at stderr, and
+  talflow logs through `logging` to `~/.local/state/taldock/talflow.log`
+  (warnings also to stderr). Look there first for any dictation failure.
+
+- **mai-transcribe-2 has a single upstream on OpenRouter (Azure), so a busy
+  Azure comes straight back as 429** -- there is nothing for OpenRouter to
+  route around. Its reported uptime stayed 100% throughout, so do not read
+  the endpoints page as evidence against a rate limit. The worker retries a
+  busy answer (`retries`, honouring `Retry-After` up to 4s), then tries
+  `fallback_model` (parakeet, served only by Together -- a different
+  single upstream, not a redundant one). `transcribe()`
+  itself stays a single attempt on purpose: `tools/talflow_models.py`
+  benchmarks through it, and a hidden retry would be reported as latency.
+  Only HTTP busy answers fall back -- a 401 or 400 would fail the same way on
+  any model, and a network failure reaches the same host. The last
+  `keep_recordings` WAVs are kept in `$XDG_RUNTIME_DIR/taldock/recordings/`,
+  named by outcome, for replaying through the benchmark tool.
+
 - **talflow keeps its own config file because it holds an API key.**
   `~/.config/taldock/talflow.json`, written 0600. `config.json` is the file a
   user would paste into a bug report about the bar's appearance, and

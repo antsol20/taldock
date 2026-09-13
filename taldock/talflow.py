@@ -25,6 +25,8 @@ ElevenLabs Scribe means adding a row, not rewriting the request.
 from __future__ import annotations
 
 import json
+import logging
+import logging.handlers
 import os
 import signal
 import threading
@@ -58,6 +60,20 @@ MUTED_MESSAGE = "microphone is muted"
 MODIFIER_POLL_MS = 30
 MODIFIER_WAIT_MS = 2500
 
+#: Statuses worth asking again for. 429 is the one actually seen: OpenRouter
+#: has a single upstream (Azure) for mai-transcribe-2, so when that provider
+#: is busy there is nothing for OpenRouter to fall back to and the rate limit
+#: comes straight through.
+RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
+#: Ceiling on how long a Retry-After header can make us wait. Someone is
+#: sitting there waiting for their words; past this, the fallback is better.
+MAX_RETRY_WAIT_S = 4.0
+#: Response headers copied into the log when a request fails.
+LOGGED_HEADERS = ("retry-after", "x-ratelimit-limit", "x-ratelimit-remaining",
+                  "x-ratelimit-reset", "x-generation-id")
+
+log = logging.getLogger("taldock.talflow")
+
 PROVIDERS = {
     # OpenAI's /audio/transcriptions shape. OpenRouter speaks it, and so does
     # OpenAI itself, so one row covers both.
@@ -67,6 +83,10 @@ PROVIDERS = {
         "auth_value": "Bearer {key}",
         "model_field": "model",
         "language_field": "language",
+        # Second in the benchmark, clean on silence, and served by Together
+        # rather than Azure -- so it does not share mai-transcribe-2's limits.
+        # Also a single upstream, though: both being busy at once is possible.
+        "fallback_model": "nvidia/parakeet-tdt-0.6b-v3",
     },
     # Scribe. Verified against the live API. Note it reports no cost in the
     # response, unlike OpenRouter, so `usage` comes back with only its own
@@ -102,6 +122,14 @@ DEFAULTS = {
     "min_seconds": 0.25,         # shorter than this is a fumble, not speech
     "max_seconds": 120.0,        # hard stop, so a stuck key cannot record for ever
     "request_timeout": 45.0,
+    # A busy provider (429, 5xx) is asked again this many times, and then the
+    # fallback model is tried. null means the provider's own fallback; "" none.
+    "retries": 1,
+    "retry_delay": 1.0,
+    "fallback_model": None,
+    # The last few recordings are kept, named by outcome, so a failure can be
+    # replayed. They live in $XDG_RUNTIME_DIR: private, and gone at logout.
+    "keep_recordings": 5,
     "type_delay_ms": 4,          # per batch of keystrokes
     "type_batch": 6,             # keystrokes per main-loop tick
     # Start capturing when the shortcut's modifiers go down, before its key
@@ -124,6 +152,43 @@ MODIFIER_KEYSYMS = {
     "<Control>": ("Control_L", "Control_R"),
     "<Shift>": ("Shift_L", "Shift_R"),
 }
+
+
+def log_path():
+    state = (GLib.get_user_state_dir() if hasattr(GLib, "get_user_state_dir")
+             else os.path.expanduser("~/.local/state"))
+    return os.path.join(state, "taldock", "talflow.log")
+
+
+def setup_logging():
+    """Send talflow's log to its own file, and its warnings to stderr too.
+
+    A file of its own because the dock's stdout is not somewhere you can
+    read: xfce4-session starts its clients with stdout on /dev/null, which is
+    exactly how the body of two 429 responses was lost. stderr does reach
+    ~/.xsession-errors, but that is shared with every client in the session,
+    so only warnings go there. Idempotent, since `Talflow` can be rebuilt.
+    """
+    if getattr(log, "_talflow_ready", False):
+        return
+    log._talflow_ready = True
+    log.setLevel(logging.INFO)
+    log.propagate = False
+    stderr = logging.StreamHandler()
+    stderr.setLevel(logging.WARNING)
+    stderr.setFormatter(logging.Formatter("talflow: %(message)s"))
+    log.addHandler(stderr)
+    path = log_path()
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        handler = logging.handlers.RotatingFileHandler(
+            path, maxBytes=512 * 1024, backupCount=1, encoding="utf-8")
+    except OSError as exc:
+        log.warning("cannot open log %s: %s", path, exc)
+        return
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)-7s %(message)s", "%Y-%m-%d %H:%M:%S"))
+    log.addHandler(handler)
 
 
 def bare_modifier_conflicts(accel):
@@ -186,7 +251,7 @@ class Settings(dict):
             return {}
         except (OSError, ValueError) as exc:
             self.error = f"ignoring bad {self.path}: {exc}"
-            print(f"talflow: {self.error}")
+            log.warning("%s", self.error)
             return {}
         if not isinstance(raw, dict):
             self.error = f"{self.path} is not a JSON object"
@@ -202,7 +267,7 @@ class Settings(dict):
                 handle.write("\n")
             os.chmod(self.path, 0o600)
         except OSError as exc:
-            print(f"talflow: could not write {self.path}: {exc}")
+            log.warning("could not write %s: %s", self.path, exc)
 
     @property
     def api_key(self):
@@ -216,14 +281,32 @@ class Settings(dict):
     def url(self):
         return self.get("endpoint") or self.provider["url"]
 
+    @property
+    def fallback_model(self):
+        """The model to try when `model` stays busy, or "" for none.
 
-def transcribe(audio_path, settings, usage=None):
-    """POST the recording. Returns (text, error); exactly one is None.
+        `null` in the file means "whatever suits this provider", because a
+        model id means nothing to any provider but its own.
+        """
+        value = self.get("fallback_model")
+        if value is None:
+            value = self.provider.get("fallback_model", "")
+        return value or ""
+
+
+def transcribe(audio_path, settings, usage=None, info=None, model=None):
+    """POST the recording, once. Returns (text, error); exactly one is None.
 
     `usage`, if given, is a dict filled in with whatever the provider
-    reported alongside the transcript -- seconds billed and cost. Passed in
-    rather than returned so the return shape stays two values for the one
-    caller that matters.
+    reported alongside the transcript -- seconds billed and cost. `info` gets
+    what a caller needs to decide whether to try again: `status`,
+    `retryable`, `retry_after`, the untruncated error `body` and a few
+    `headers`. Both are passed in rather than returned so the return shape
+    stays two values. `model` overrides `settings["model"]`.
+
+    Deliberately a single attempt: `tools/talflow_models.py` benchmarks
+    through this, and a silent retry would pass a rate limit off as latency.
+    The retry and fallback policy is `Talflow._transcribe_worker`'s.
 
     Runs on a worker thread: this is seconds of network, and the dock is
     drawing a bar on the main one.
@@ -239,7 +322,11 @@ def transcribe(audio_path, settings, usage=None):
     except OSError as exc:
         return None, f"cannot read recording: {exc}"
 
-    fields = {provider["model_field"]: settings["model"]}
+    if info is None:
+        info = {}
+    info.update(status=None, retryable=False, retry_after=None, body="",
+                headers={})
+    fields = {provider["model_field"]: model or settings["model"]}
     if settings.get("language"):
         fields[provider["language_field"]] = settings["language"]
     for name, value in (settings.get("extra") or {}).items():
@@ -271,14 +358,34 @@ def transcribe(audio_path, settings, usage=None):
                 request, timeout=float(settings["request_timeout"])) as response:
             payload = json.loads(response.read().decode("utf-8", "replace"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:400]
         try:
-            parsed = json.loads(detail)
-            detail = parsed.get("error", {}).get("message") or detail
-        except ValueError:
+            body = exc.read().decode("utf-8", "replace")
+        except OSError:
+            body = ""
+        info.update(status=exc.code, body=body[:4000],
+                    retryable=exc.code in RETRYABLE_STATUS,
+                    headers={name: exc.headers[name] for name in LOGGED_HEADERS
+                             if exc.headers and exc.headers.get(name)})
+        try:
+            info["retry_after"] = float(exc.headers.get("retry-after"))
+        except (TypeError, ValueError, AttributeError):
+            pass
+        detail = body[:400]
+        try:
+            error = json.loads(body).get("error", {})
+            detail = error.get("message") or detail
+            # OpenRouter wraps upstream failures as "Provider returned error"
+            # and names the provider only in the metadata.
+            provider_name = (error.get("metadata") or {}).get("provider_name")
+            if provider_name and provider_name not in detail:
+                detail = f"{detail} ({provider_name})"
+        except (ValueError, AttributeError):
             pass
         return None, f"HTTP {exc.code}: {detail}"
     except urllib.error.URLError as exc:
+        # A refused or unresolvable connection is worth one more try; a
+        # timeout has already cost request_timeout seconds and is not.
+        info["retryable"] = not isinstance(exc.reason, TimeoutError)
         return None, f"network error: {exc.reason}"
     except (ValueError, OSError) as exc:
         return None, f"bad response: {exc}"
@@ -300,6 +407,7 @@ class Talflow(GObject.Object):
         from .hotkey import HotkeyGrabber
         from .xtype import Typist
 
+        setup_logging()
         self.settings = settings or Settings()
         self.typist = typist or Typist()
         self.pulse = pulse
@@ -318,9 +426,11 @@ class Talflow(GObject.Object):
         self._cap_source = 0
         self._hold_source = 0
         self._wait_source = 0
-        self._wav = os.path.join(
-            GLib.get_user_runtime_dir() or f"/run/user/{os.getuid()}",
-            "taldock", "talflow.wav")
+        self._note = ""            # said alongside a success, e.g. a fallback
+        runtime = os.path.join(
+            GLib.get_user_runtime_dir() or f"/run/user/{os.getuid()}", "taldock")
+        self._wav = os.path.join(runtime, "talflow.wav")
+        self.recordings_dir = os.path.join(runtime, "recordings")
 
         self.warning = ""
         self.hotkey = HotkeyGrabber(self.settings["shortcut"])
@@ -348,7 +458,7 @@ class Talflow(GObject.Object):
             self.warning = (
                 f"{name} is also a shortcut on its own, so this only works if "
                 f"you press the other keys first")
-            print(f"talflow: {self.warning} ({self.settings['shortcut']})")
+            log.warning("%s (%s)", self.warning, self.settings["shortcut"])
 
     # -- state -------------------------------------------------------------
     def _set_state(self, state, message=""):
@@ -357,7 +467,7 @@ class Talflow(GObject.Object):
         self.emit("state-changed")
 
     def _fail(self, message):
-        print(f"talflow: {message}")
+        log.error("%s", message)
         self._set_state(ERROR, message)
 
     @property
@@ -456,6 +566,7 @@ class Talflow(GObject.Object):
             # Recording would be silence, and the request would still be paid
             # for. Say so instead; it clears itself when the mic comes back.
             self.cancel_prearm()
+            log.info("refused: %s", MUTED_MESSAGE)
             self._set_state(ERROR, MUTED_MESSAGE)
             return
         # Keep a pre-armed recorder rather than restarting it: the audio it
@@ -518,20 +629,110 @@ class Talflow(GObject.Object):
             return self._fail(f"no usable recording: {exc}")
         if seconds < float(self.settings["min_seconds"]):
             return self._set_state(IDLE)
+        # Out of the recorder's way under a name of its own, so the next
+        # recording can never overwrite a file a request is still reading.
+        path = self._claim_recording()
         thread = threading.Thread(target=self._transcribe_worker,
-                                  args=(self._wav,), daemon=True)
+                                  args=(path, seconds, self.settings),
+                                  daemon=True)
         thread.start()
 
-    def _transcribe_worker(self, path):
-        text, error = transcribe(path, self.settings)
-        GLib.idle_add(self._on_transcribed, text, error)
+    def _claim_recording(self):
+        if int(self.settings.get("keep_recordings") or 0) <= 0:
+            return self._wav
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        path = os.path.join(self.recordings_dir, f"{stamp}.wav")
+        try:
+            os.makedirs(self.recordings_dir, mode=0o700, exist_ok=True)
+            os.replace(self._wav, path)
+        except OSError as exc:
+            log.warning("cannot keep recording: %s", exc)
+            return self._wav
+        return path
+
+    def _settle_recording(self, path, outcome):
+        """Name a kept recording after how it went, and prune old ones."""
+        keep = int(self.settings.get("keep_recordings") or 0)
+        if path == self._wav or keep <= 0:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            return
+        stem, ext = os.path.splitext(path)
+        try:
+            os.replace(path, f"{stem}-{outcome}{ext}")
+            names = sorted(name for name in os.listdir(self.recordings_dir)
+                           if name.endswith(".wav"))
+            for name in names[:-keep]:
+                os.unlink(os.path.join(self.recordings_dir, name))
+        except OSError as exc:
+            log.warning("cannot tidy recordings: %s", exc)
+
+    def _transcribe_worker(self, path, seconds, settings):
+        """Transcribe, asking again and then falling back while busy.
+
+        Only a busy answer is retried -- 429 or a 5xx, or a connection that
+        never got anywhere. A 401 or 400 would fail identically every time,
+        and a timeout has already spent request_timeout seconds. The fallback
+        is tried only after an HTTP busy answer: a network failure would
+        reach the same host and fail the same way.
+        """
+        name = os.path.basename(path)
+        models = [settings["model"]]
+        if settings.fallback_model and settings.fallback_model not in models:
+            models.append(settings.fallback_model)
+        retries = max(0, int(settings.get("retries") or 0))
+        delay = float(settings.get("retry_delay") or 0.0)
+        text = error = None
+        outcome = "error"
+        note = ""
+        for model in models:
+            info = {}
+            for attempt in range(1, retries + 2):
+                usage, info = {}, {}
+                began = time.monotonic()
+                text, error = transcribe(path, settings, usage=usage,
+                                         info=info, model=model)
+                took = time.monotonic() - began
+                if error is None:
+                    log.info("ok %s attempt %d: audio %.1fs, took %.2fs, "
+                             "billed %ss, cost $%.6f, %d chars [%s]",
+                             model, attempt, seconds, took,
+                             usage.get("seconds", "?"),
+                             float(usage.get("cost") or 0.0),
+                             len((text or "").strip()), name)
+                    if model != models[0]:
+                        note = f"via fallback {model.split('/')[-1]}"
+                    outcome = "ok" if (text or "").strip() else "empty"
+                    GLib.idle_add(self._on_transcribed, text, None, note,
+                                  path, outcome)
+                    return
+                log.warning("failed %s attempt %d after %.2fs: %s [%s]",
+                            model, attempt, took, error, name)
+                if info.get("headers"):
+                    log.info("  headers: %s", json.dumps(info["headers"]))
+                if info.get("body"):
+                    log.info("  body: %s", info["body"].replace("\n", " "))
+                if not info.get("retryable"):
+                    break
+                if attempt <= retries:
+                    wait = info.get("retry_after")
+                    wait = delay if wait is None else wait
+                    time.sleep(min(max(wait, 0.0), MAX_RETRY_WAIT_S))
+            outcome = f"http{info['status']}" if info.get("status") else "error"
+            if not (info.get("retryable") and info.get("status")):
+                break
+            if model != models[-1]:
+                log.info("falling back to %s", models[-1])
+        if model != models[0]:
+            error = (f"{models[0].split('/')[-1]} busy, and fallback "
+                     f"{model.split('/')[-1]} failed: {error}")
+        GLib.idle_add(self._on_transcribed, None, error, "", path, outcome)
 
     # -- delivery ----------------------------------------------------------
-    def _on_transcribed(self, text, error):
-        try:
-            os.unlink(self._wav)
-        except OSError:
-            pass
+    def _on_transcribed(self, text, error, note, path, outcome):
+        self._settle_recording(path, outcome)
         if error:
             self._fail(error)
             return GLib.SOURCE_REMOVE
@@ -539,6 +740,7 @@ class Talflow(GObject.Object):
         if not text:
             self._set_state(IDLE, "nothing heard")
             return GLib.SOURCE_REMOVE
+        self._note = note
         self.last_text = text
         active = self.typist.active_window()
         if not self._target or active != self._target:
@@ -550,6 +752,8 @@ class Talflow(GObject.Object):
     def _to_clipboard(self, text, why):
         from gi.repository import Gdk, Gtk
         Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(text, -1)
+        log.info("to clipboard: %s", why)
+        self._note = ""
         self._set_state(CLIPBOARD, f"{why} -- transcript copied instead")
 
     def _wait_for_modifiers(self, text, waited=0):
@@ -575,10 +779,12 @@ class Talflow(GObject.Object):
         return GLib.SOURCE_REMOVE
 
     def _on_typed(self, _typed, dropped):
-        note = ""
+        notes = [self._note] if self._note else []
         if dropped:
-            note = f"{len(dropped)} character(s) not in the keyboard layout"
-        self._set_state(PASTED, note)
+            notes.append(f"{len(dropped)} character(s) not in the keyboard layout")
+            log.warning("could not type %r", "".join(sorted(set(dropped))))
+        self._note = ""
+        self._set_state(PASTED, "; ".join(notes))
         self._hold_source = GLib.timeout_add(PASTED_HOLD_MS, self._back_to_idle)
 
     def _back_to_idle(self):
@@ -600,6 +806,9 @@ class Talflow(GObject.Object):
             self._fail(self.hotkey.error or "could not bind shortcut")
             return False
         self._check_shortcut()
+        log.info("settings reloaded: %s via %s, fallback %s",
+                 self.settings["model"], self.settings.get("provider"),
+                 self.settings.fallback_model or "none")
         self._set_state(IDLE, "settings reloaded")
         return True
 

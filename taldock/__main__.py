@@ -236,6 +236,7 @@ def main(argv=None):
 
     import signal
 
+    _keep_stdout()
     from gi.repository import GLib, Gtk
     from .dock import Dock
     timing.mark("taldock imports")
@@ -255,6 +256,23 @@ def main(argv=None):
     finally:
         dock.shutdown()
     return 0
+
+
+def _keep_stdout():
+    """Make the dock's stdout readable when the session discarded it.
+
+    xfce4-session starts its clients with stdout on /dev/null and only
+    stderr on ~/.xsession-errors, so every `print` in the dock -- including
+    the reason a dictation failed -- vanished. Point stdout at stderr in that
+    case, and line-buffer it either way: to a file Python block-buffers, so
+    a message would otherwise land minutes late or not before a crash.
+    """
+    try:
+        if os.path.realpath("/proc/self/fd/1") == os.devnull:
+            os.dup2(2, 1)
+        sys.stdout.reconfigure(line_buffering=True)
+    except (OSError, AttributeError, ValueError):
+        pass
 
 
 if __name__ == "__main__":

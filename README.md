@@ -294,6 +294,10 @@ a launcher.
 | `min_seconds` | `0.25` | Shorter holds are discarded, unsent |
 | `max_seconds` | `120` | Hard stop, so a stuck key cannot record for ever |
 | `request_timeout` | `45` | Seconds to wait for the transcription |
+| `retries` | `1` | Extra attempts when the provider is busy (429, 5xx) |
+| `retry_delay` | `1.0` | Seconds between them, unless the response gives a `Retry-After` (capped at 4) |
+| `fallback_model` | `null` | Tried once `model` is still busy; `null` is the provider's own choice (parakeet on OpenRouter, served by Together rather than Azure), `""` disables |
+| `keep_recordings` | `5` | Recent recordings kept for replay; `0` deletes each one after sending |
 | `type_delay_ms` | `4` | Pause between batches of keystrokes |
 | `type_batch` | `6` | Keystrokes sent per main-loop tick |
 | `prewarm` | `true` | Start capturing on the modifiers, before the shortcut's key |
@@ -305,6 +309,18 @@ which strips filler words and false starts, goes in `extra`:
 ```json
 { "provider": "elevenlabs", "model": "scribe_v2",
   "extra": { "no_verbatim": true } }
+```
+
+Every request is logged to `~/.local/state/taldock/talflow.log`: the model,
+audio length, time taken, cost, and for a failure the status, the response
+body and any rate-limit headers. The transcript itself is not logged. The
+last `keep_recordings` recordings sit in `$XDG_RUNTIME_DIR/taldock/recordings/`
+(private, and cleared at logout), named by time and outcome —
+`20260913-162401-http429.wav` — so a failure can be replayed:
+
+```sh
+python3 tools/talflow_models.py $XDG_RUNTIME_DIR/taldock/recordings/<file> \
+    --models microsoft/mai-transcribe-2
 ```
 
 The shortcut is grabbed from the X server directly rather than going through
