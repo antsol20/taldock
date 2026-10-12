@@ -50,8 +50,9 @@ panel, in one process.
   whatever had focus
 - The icon is the whole readout — idle, recording, transcribing, typed,
   parked on the clipboard, failed
-- Speech-to-text over any OpenAI-compatible endpoint; OpenRouter and Nvidia
-  Parakeet by default, and no LLM clean-up pass
+- Speech-to-text over any OpenAI-compatible endpoint, or ElevenLabs Scribe;
+  OpenRouter and Microsoft's mai-transcribe-2 by default, and no LLM
+  clean-up pass
 - The transcript is **typed**, not pasted, so it lands in terminals and TUIs
   that would ignore a synthesised Ctrl+V
 - Nothing is typed into a window that took focus while you were speaking —
@@ -486,8 +487,6 @@ is at fault, not the tray. Restart that application to get its icon back.
 - **Dictation does not work while one of taldock's own popups is open.** A
   popup holds a seat grab, which outranks the passive key grab, so the
   shortcut never reaches it.
-- The `elevenlabs` provider row is written from Scribe's documented request
-  shape but has not been exercised against the live service.
 
 Bug reports and patches welcome.
 
