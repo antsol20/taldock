@@ -86,6 +86,9 @@ class AppRow(Gtk.ListBoxRow):
         else:
             image.set_from_icon_name("application-x-executable",
                                      Gtk.IconSize.LARGE_TOOLBAR)
+        # An icon with no 24px variant otherwise renders at the next size up,
+        # unscaled -- claude-desktop came out 32px and pushed its text right.
+        image.set_pixel_size(24)
         row.pack_start(image, False, False, 0)
 
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)

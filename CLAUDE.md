@@ -171,6 +171,13 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   rare enough (one frame at the end of a bounce) to look like a random
   flicker. Found in `~/.xsession-errors` while chasing something else.
 
+- **A `Gtk.IconSize` is a request, not a size.** `set_from_gicon(icon,
+  LARGE_TOOLBAR)` asks for 24px, but an icon theme with no 24px variant
+  hands back the next size up and GTK3 draws it unscaled: `claude-desktop`
+  (16/32/48/… only) came out 32px in the applications menu beside a 24px
+  ChatGPT, pushing its text 8px right. `set_pixel_size()` is what forces
+  the scale. Measure with a `Gtk.OffscreenWindow` rather than by eye.
+
 - **Animate off the frame clock** (`add_tick_callback`), not a 16ms timeout,
   and ease `pointer_x` toward the raw pointer: motion events arrive coalesced
   and unevenly, so following them directly stutters.
