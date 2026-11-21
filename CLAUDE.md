@@ -417,6 +417,23 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   busy desktop never left green. Widen them again only if the gauges feel
   alarmist.
 
+- **The dock slides off-screen under a fullscreen window; it does not
+  unmap, and it does not lean on the window manager's stacking.** It was a
+  `DOCK` with `keep_above`, and xfwm4 kept it over fullscreen video
+  (`tools/fullscreen_check.py` measured 14% of the bar strip covered before
+  the change). `FullscreenWatch` asks whether the *topmost window overlapping
+  the bar* is fullscreen -- not whether the *active* one is -- so focusing a
+  second monitor does not bring the bar back over a video, and a dialog or
+  notification raised over the video (which does not touch the bar) does not
+  either. A borderless window exactly the monitor's size counts too, for
+  players and games that skip the EWMH state. Hiding moves the window, using
+  the autohide slide (`_hide_px`, now in pixels), rather than unmapping it:
+  unmapping drops the strut, so a maximised browser leaving fullscreen
+  would lay out at full height and then again once the bar returned. The
+  strut stays set throughout (checked via `_NET_WORKAREA`). Popups anchor to
+  `bar_rect_root(resting=True)`, so Super still opens the menu in its usual
+  place over the video.
+
 ## Things that look wrong but are deliberate
 
 - **The applications menu is built once and reused**, not rebuilt per open.
@@ -554,6 +571,9 @@ that works:
   paragraph about films, qwen3-asr-flash offered "I think it's a good idea."
   and fish-audio emitted "no," roughly four hundred times. A model that
   hallucinates on silence will type that into whatever you were focused on.
+- `tools/fullscreen_check.py` — fullscreens a magenta window of its own and
+  samples the bar's strip: 100% magenta while fullscreen, back to the
+  baseline afterwards. Run against the live dock.
 - `tools/cap.py` — screen capture via `Gdk.pixbuf_get_from_window`. **Use
   this, not `xfce4-screenshooter`**: the screenshooter perturbs the pointer,
   so hover and magnification collapse before the frame is taken.
@@ -584,6 +604,9 @@ Run a throwaway config with `--config` rather than editing `~/.config/taldock`.
   to be routed through `Popup._on_key`; dictating into the dock's own menu is
   unlikely enough that it has not been worth the same treatment, which would
   additionally need key *release* delivered to the popup.
+- **Fullscreen hiding assumes nothing lies beyond the bar's edge.** It
+  slides the window past the monitor's bottom (or top) edge; with a second
+  monitor stacked directly below, that would put it on that monitor.
 - **Wayland is unsupported** and would need a full rewrite (layer-shell).
 - Multi-monitor is implemented (`monitor` config key, `monitors-changed`
   handling) but has only been exercised on a single 1920×1080 display.

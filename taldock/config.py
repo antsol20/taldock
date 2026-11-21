@@ -40,6 +40,7 @@ DEFAULTS = {
     "zoom_factor": 1.32,
     "zoom_range": 2.2,             # neighbours affected, in icon widths
     "autohide": "none",            # none | autohide
+    "hide_for_fullscreen": True,   # slide away under fullscreen windows
     "click_action": "cycle",       # cycle | expose (cycle windows on click)
     "hover_previews": True,        # window list popup on hover
     "hover_delay_ms": 420,

@@ -102,7 +102,7 @@ class Popup(Gtk.Window):
         self.show_all()
         w, h = self.get_preferred_size()[1].width, self.get_preferred_size()[1].height
         mon = self.dock.monitor_geometry()
-        bar = self.dock.bar_rect_root()
+        bar = self.dock.bar_rect_root(resting=True)
 
         if align == "center":
             x = int(anchor_x - w / 2)

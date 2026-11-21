@@ -25,7 +25,7 @@ from .theme import Theme
 from .util import (ICONS, draw_shadow, ease_out_cubic, now, paint_surface,
                    rect, rgba, rounded_rect, with_alpha)
 from .windowlist import WindowListPopup
-from .windows import AppDatabase, WindowModel
+from .windows import AppDatabase, FullscreenWatch, WindowModel
 from .widgets.audio import VOLUME_STEP, AudioItem
 from .widgets.battery import BatteryItem
 from .widgets.clock import ClockItem
@@ -102,11 +102,12 @@ class Dock:
         self._layout_valid = False
         self._bg_surface = None     # cached bar background
         self._bg_key = None
-        self._hide_state = 0.0      # 0 = shown, 1 = hidden
+        self._hide_px = 0.0         # how far the bar is slid off its edge
         self._hide_anim = 0
         self._hide_t0 = 0.0
         self._hide_from = 0.0
-        self._hidden = False
+        self._hidden = False        # autohide has tucked the bar away
+        self._fullscreen = False    # a fullscreen window covers the bar
         self._pointer_inside = False
 
         self._build_window()
@@ -121,6 +122,9 @@ class Dock:
         timing.mark("  geometry")
         if self.tabs is not None:
             self.tabs.connect("changed", lambda *_a: self.queue_draw_center())
+        if self.cfg["hide_for_fullscreen"]:
+            self.fullscreen = FullscreenWatch(self.windows.screen)
+            self.fullscreen.connect("changed", self._on_fullscreen_changed)
 
     # ------------------------------------------------------------------
     # window setup
@@ -215,13 +219,18 @@ class Dock:
     def at_bottom(self):
         return self.cfg["position"] != "top"
 
-    def bar_rect_root(self):
-        """The drawn bar's rectangle in root coordinates."""
+    def bar_rect_root(self, resting=False):
+        """The drawn bar's rectangle in root coordinates.
+
+        `resting` gives where the bar sits when shown, whether or not it is
+        currently slid away -- popups anchor to that, so the applications
+        menu still opens in its usual place over a fullscreen video.
+        """
         geo = self.monitor_geometry()
         margin = self.cfg["margin"]
         side = self.cfg["side_margin"]
         width = geo.width - side * 2
-        offset = int(self._hide_state * (self.bar_height + margin - REVEAL_PX))
+        offset = 0 if resting else int(self._hide_px)
         if self.at_bottom():
             y = geo.y + geo.height - margin - self.bar_height + offset
         else:
@@ -803,6 +812,27 @@ class Dock:
     def reveal(self):
         self._set_hidden(False)
 
+    def _hide_target_px(self):
+        margin = self.cfg["margin"]
+        if self._fullscreen:
+            # Entirely off the monitor, zoom headroom included, so nothing
+            # of ours overlaps the fullscreen window -- not even a
+            # transparent strip, which would stop the compositor
+            # unredirecting it.
+            return self.bar_height + margin + self.headroom + 1
+        if self._hidden:
+            return self.bar_height + margin - REVEAL_PX
+        return 0.0
+
+    def _on_fullscreen_changed(self, *_a):
+        covered = self.fullscreen.covers(self.bar_rect_root(resting=True),
+                                         self.monitor_geometry())
+        if covered != self._fullscreen:
+            self._fullscreen = covered
+            if covered:
+                self.close_window_list()
+            self._start_hide_anim()
+
     def schedule_hide(self):
         if self.cfg["autohide"] == "none":
             return
@@ -818,19 +848,23 @@ class Dock:
         if hidden == self._hidden:
             return
         self._hidden = hidden
-        self._hide_from = self._hide_state
+        self._start_hide_anim()
+
+    def _start_hide_anim(self):
+        """Slide from wherever the bar is now toward `_hide_target_px()`."""
+        self._hide_from = self._hide_px
         self._hide_t0 = now()
         if not self._hide_anim:
             self._hide_anim = GLib.timeout_add(16, self._hide_tick)
 
     def _hide_tick(self):
-        target = 1.0 if self._hidden else 0.0
-        t = (now() - self._hide_t0) / AUTOHIDE_SEC
-        self._hide_state = self._hide_from + (target - self._hide_from) * ease_out_cubic(t)
+        target = self._hide_target_px()
+        t = min(1.0, (now() - self._hide_t0) / AUTOHIDE_SEC)
+        self._hide_px = self._hide_from + (target - self._hide_from) * ease_out_cubic(t)
         bar = self.bar_rect_root()
         self.window.move(bar.x, bar.y - self.headroom if self.at_bottom() else bar.y)
         if t >= 1.0:
-            self._hide_state = target
+            self._hide_px = target
             self._hide_anim = 0
             return GLib.SOURCE_REMOVE
         return GLib.SOURCE_CONTINUE
@@ -847,6 +881,8 @@ class Dock:
         self._apply_input_region()
         self._apply_strut()
         self.invalidate_layout()
+        if self.cfg["hide_for_fullscreen"]:
+            self._on_fullscreen_changed()   # the dock may start under one
         timing.mark("struts + input region")
         # Build the applications menu once the dock itself is up, so the
         # first Super press does not pay for it.

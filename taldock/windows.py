@@ -336,3 +336,85 @@ def Gtk_get_current_event_time():
     from gi.repository import Gtk
     ts = Gtk.get_current_event_time()
     return ts if ts else GLib.get_monotonic_time() // 1000
+
+
+class FullscreenWatch(GObject.Object):
+    """Reports whether a fullscreen window is what covers a given area.
+
+    The question asked is "is the topmost window over the bar fullscreen?",
+    not "is the active window fullscreen?": with a second monitor, focusing
+    something there must not bring the dock back over a video still playing
+    on this one, and a dialog or notification raised over the video does not
+    touch the bar, so it must not bring the dock back either.
+    """
+
+    __gsignals__ = {"changed": (GObject.SignalFlags.RUN_LAST, None, ())}
+
+    _IGNORED = {Wnck.WindowType.DESKTOP, Wnck.WindowType.DOCK}
+
+    def __init__(self, screen):
+        super().__init__()
+        self.screen = screen
+        self._handlers = {}
+        self._source = 0
+        self._pid = os.getpid()
+        screen.connect("window-opened", self._on_opened)
+        screen.connect("window-closed", self._on_closed)
+        for sig in ("window-stacking-changed", "active-window-changed",
+                    "active-workspace-changed"):
+            screen.connect(sig, lambda *_a: self._queue())
+        for win in screen.get_windows():
+            self._watch(win)
+
+    def _watch(self, win):
+        if win in self._handlers:
+            return
+        self._handlers[win] = [
+            win.connect("state-changed", lambda *_a: self._queue()),
+            win.connect("geometry-changed", lambda *_a: self._queue()),
+        ]
+
+    def _on_opened(self, _screen, win):
+        self._watch(win)
+        self._queue()
+
+    def _on_closed(self, _screen, win):
+        for hid in self._handlers.pop(win, []):
+            try:
+                win.disconnect(hid)
+            except TypeError:
+                pass
+        self._queue()
+
+    def _queue(self):
+        # geometry-changed fires per frame while a window is dragged.
+        if not self._source:
+            self._source = GLib.idle_add(self._flush)
+
+    def _flush(self):
+        self._source = 0
+        self.emit("changed")
+        return GLib.SOURCE_REMOVE
+
+    def covers(self, area, monitor):
+        """True if the topmost window overlapping `area` is fullscreen on
+        `monitor` (both Gdk.Rectangles in root coordinates)."""
+        ws = self.screen.get_active_workspace()
+        for win in reversed(self.screen.get_windows_stacked()):
+            if win.get_window_type() in self._IGNORED or win.is_minimized():
+                continue
+            if win.get_pid() == self._pid:
+                continue          # our own popups
+            if ws is not None and not win.is_pinned() \
+                    and not win.is_on_workspace(ws):
+                continue
+            x, y, w, h = win.get_geometry()
+            if x >= area.x + area.width or x + w <= area.x \
+                    or y >= area.y + area.height or y + h <= area.y:
+                continue
+            # Some players and games size a borderless window to the monitor
+            # instead of asking for the fullscreen state.
+            return win.is_fullscreen() or (
+                (x, y, w, h) == (monitor.x, monitor.y,
+                                 monitor.width, monitor.height))
+        return False

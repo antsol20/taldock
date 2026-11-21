@@ -255,6 +255,7 @@ so you can spell settings out explicitly without them being tidied away.
 | `radius` | `17` | Bar corner radius |
 | `zoom`, `zoom_factor` | `true`, `1.32` | Magnification |
 | `autohide` | `"none"` | `none` or `autohide` |
+| `hide_for_fullscreen` | `true` | Slide the bar away while a fullscreen window (a video, a game) covers it |
 | `opacity` | `0.95` | Bar translucency |
 | `reserve_space` | `true` | Set `_NET_WM_STRUT_PARTIAL` |
 | `launchers` | see `config.py` | Pinned `.desktop` ids |
