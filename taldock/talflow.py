@@ -5,7 +5,9 @@ microphone is recorded; let go and the audio is posted to a transcription
 endpoint; the text comes back and is typed into the window that was focused
 when recording started. There is no waveform overlay -- the panel icon's
 colour is the whole indicator -- and no LLM clean-up pass: the speech model's
-own output is what gets typed.
+own output is what gets typed. Where the model itself offers to drop filler
+words (mai-transcribe-2's "clean" style, Scribe's `no_verbatim`), the `clean`
+setting asks it to.
 
 Three things here are less obvious than they look:
 
@@ -87,6 +89,17 @@ PROVIDERS = {
         # rather than Azure -- so it does not share mai-transcribe-2's limits.
         # Also a single upstream, though: both being busy at once is possible.
         "fallback_model": "nvidia/parakeet-tdt-0.6b-v3",
+        # Clean-up is per model, not per provider. OpenRouter documents no
+        # field for it, but forwards `provider.options.<slug>` to the
+        # upstream, and Azure validates what arrives there -- a bogus
+        # transcribeStyle comes back as Azure's own 400. mai-transcribe-1.5
+        # rejects "clean" outright, so this must never be sent to it, nor to
+        # anything else: a model not listed here gets no clean-up fields.
+        "clean_fields": {
+            "microsoft/mai-transcribe-2": {"provider": {"options": {"azure": {
+                "enhancedMode": {"modelOptions": {"transcribeStyle": "clean"}},
+            }}}},
+        },
     },
     # Scribe. Verified against the live API. Note it reports no cost in the
     # response, unlike OpenRouter, so `usage` comes back with only its own
@@ -98,6 +111,7 @@ PROVIDERS = {
         "auth_value": "{key}",
         "model_field": "model_id",
         "language_field": "language_code",
+        "clean_fields": {"scribe_v2": {"no_verbatim": True}},
     },
 }
 
@@ -119,6 +133,10 @@ DEFAULTS = {
     # Extra form fields passed straight to the provider, for options only it
     # understands -- ElevenLabs' {"no_verbatim": true}, say.
     "extra": {},
+    # Drop filler words and false starts, and tidy the formatting, where the
+    # model can (PROVIDERS[...]["clean_fields"]); ignored by any other model.
+    # Off, the transcript is verbatim -- every "um" is typed.
+    "clean": True,
     "min_seconds": 0.25,         # shorter than this is a fumble, not speech
     "max_seconds": 120.0,        # hard stop, so a stuck key cannot record for ever
     "request_timeout": 45.0,
@@ -329,10 +347,21 @@ def transcribe(audio_path, settings, usage=None, info=None, model=None):
     fields = {provider["model_field"]: model or settings["model"]}
     if settings.get("language"):
         fields[provider["language_field"]] = settings["language"]
-    for name, value in (settings.get("extra") or {}).items():
-        # multipart carries text, so JSON booleans have to be spelled out.
-        fields[name] = ("true" if value else "false") if isinstance(value, bool) \
-            else str(value)
+    extra = {}
+    if settings.get("clean"):
+        extra.update(provider.get("clean_fields", {}).get(
+            fields[provider["model_field"]], {}))
+    extra.update(settings.get("extra") or {})
+    for name, value in extra.items():
+        # multipart carries text, so JSON booleans have to be spelled out,
+        # and an object (OpenRouter's `provider`) goes as JSON, which
+        # OpenRouter parses out of a form field.
+        if isinstance(value, bool):
+            fields[name] = "true" if value else "false"
+        elif isinstance(value, (dict, list)):
+            fields[name] = json.dumps(value)
+        else:
+            fields[name] = str(value)
 
     boundary = f"----talflow{uuid.uuid4().hex}"
     parts = []

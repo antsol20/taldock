@@ -379,6 +379,21 @@ hit-tests by x position. Add a widget by subclassing `PanelItem`
   output of an unscripted recording, where there is no ground truth to score
   against.
 
+- **mai-transcribe-2's clean-up goes through an undocumented OpenRouter
+  passthrough, and must be gated per model.** OpenRouter's transcription
+  schema has no clean-up field, but it forwards `provider.options.azure` to
+  Azure, where `enhancedMode.modelOptions.transcribeStyle` is `verbatim`
+  (default) or `clean`. Proof it arrives: a bogus value comes back as Azure's
+  own 400 ("must be the string 'verbatim' or 'clean'"); the flat
+  `options.azure.transcribeStyle` spelling is silently dropped, as is any
+  unknown top-level field -- so "no error" proves nothing, test with an
+  invalid value. mai-transcribe-1.5 *rejects* `clean` with a 400, which is why
+  `PROVIDERS[...]["clean_fields"]` is keyed by model id and a fallback model
+  never inherits it. In multipart, the `provider` object travels as a JSON
+  string, which OpenRouter parses. On the one real dictation tried, clean
+  and verbatim gave identical text (mai-2 already omits a leading "uh" that
+  1.5 transcribes) -- the effect has not yet been seen on filler-heavy speech.
+
 - **The dock's stdout was `/dev/null`, so talflow's errors went nowhere.**
   xfce4-session starts clients with stdout discarded and only stderr on
   `~/.xsession-errors`. Two 429s were lost that way, bodies and all.

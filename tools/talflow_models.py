@@ -132,6 +132,8 @@ def main():
                         help="read the API key from this file instead")
     parser.add_argument("--extra", action="append", default=[], metavar="K=V",
                         help="extra form field for the provider, repeatable")
+    parser.add_argument("--verbatim", action="store_true",
+                        help="turn clean-up off, whatever talflow.json says")
     parser.add_argument("--label", default=None,
                         help="tag for this run, when comparing settings")
     args = parser.parse_args()
@@ -151,6 +153,8 @@ def main():
         settings["api_key"] = open(args.api_key_file, encoding="utf-8").read().strip()
     settings["extra"] = dict(
         pair.split("=", 1) for pair in args.extra) if args.extra else {}
+    if args.verbatim:
+        settings["clean"] = False
     if not settings.api_key:
         sys.exit("talflow_models: no API key configured")
     with wave.open(args.audio) as handle:
@@ -158,6 +162,9 @@ def main():
     tag = f" [{args.label}]" if args.label else ""
     print(f"{args.audio}: {seconds:.1f}s of audio, {len(models)} models"
           f" via {settings['provider']}{tag}")
+    # Clean-up changes the transcript, and so the score: say which was run.
+    print(f"  clean-up: {'on' if settings.get('clean') else 'off'}"
+          " (models without a clean-up option are verbatim regardless)")
     if settings["extra"]:
         print(f"  extra fields: {settings['extra']}")
     print()

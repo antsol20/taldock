@@ -52,7 +52,7 @@ panel, in one process.
   parked on the clipboard, failed
 - Speech-to-text over any OpenAI-compatible endpoint, or ElevenLabs Scribe;
   OpenRouter and Microsoft's mai-transcribe-2 by default, and no LLM
-  clean-up pass
+  clean-up pass -- though the model's own filler-word removal is on
 - The transcript is **typed**, not pasted, so it lands in terminals and TUIs
   that would ignore a synthesised Ctrl+V
 - Nothing is typed into a window that took focus while you were speaking —
@@ -288,7 +288,8 @@ a launcher.
 | --- | --- | --- |
 | `shortcut` | `"<Primary><Alt>space"` | Hold-to-talk combination, in Gtk accelerator syntax |
 | `provider` | `"openrouter"` | `openrouter` (any OpenAI-compatible endpoint) or `elevenlabs` |
-| `extra` | `{}` | Extra form fields for the provider, e.g. `{"no_verbatim": true}` |
+| `clean` | `true` | Ask the model to drop filler words and false starts: mai-transcribe-2's `clean` style, Scribe's `no_verbatim`. Models without such an option are sent nothing and stay verbatim |
+| `extra` | `{}` | Extra form fields for the provider, e.g. `{"no_verbatim": true}`; objects are sent as JSON |
 | `endpoint` | `""` | Overrides the provider's own URL |
 | `model` | `"microsoft/mai-transcribe-2"` | Sent as the `model` field |
 | `language` | `"en"` | Sent with the request; OpenRouter validates it |
@@ -305,12 +306,11 @@ a launcher.
 | `prewarm` | `true` | Start capturing on the modifiers, before the shortcut's key |
 
 To use ElevenLabs Scribe instead, set `provider` to `elevenlabs`, `model` to
-`scribe_v2`, and put an ElevenLabs key in `api_key`. Its `no_verbatim` option,
-which strips filler words and false starts, goes in `extra`:
+`scribe_v2`, and put an ElevenLabs key in `api_key`. `clean` turns on its
+`no_verbatim` option, which strips filler words and false starts:
 
 ```json
-{ "provider": "elevenlabs", "model": "scribe_v2",
-  "extra": { "no_verbatim": true } }
+{ "provider": "elevenlabs", "model": "scribe_v2" }
 ```
 
 Every request is logged to `~/.local/state/taldock/talflow.log`: the model,
